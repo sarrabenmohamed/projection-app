@@ -1,0 +1,11 @@
+# scripts/prepare_flores_embeddings.py
+torch
+transformers
+datasets
+
+# server.py
+fastapi
+uvicorn
+umap-learn
+scikit-learn
+numpy
