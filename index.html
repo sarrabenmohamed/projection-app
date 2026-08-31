@@ -1,0 +1,67 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Embedding Projection</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script type="module" src="client-js/app.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <div id="load-controls">
+      <label for="file-input">Load embeddings JSON:</label>
+      <button type="button" id="format-help-toggle" title="What format does this file need to be?">?</button>
+      <input type="file" id="file-input" accept=".json,application/json">
+      <div id="format-help">
+        <p>A JSON object with a <code>points</code> array. Everything except <code>points[].id</code>, <code>points[].lang</code>, and <code>points[].vector</code> is optional:</p>
+<pre>{
+  "model": "any string (informational)",
+  "layer": "any string (informational)",
+  "dim": 768,
+  "lang_codes": ["en", "de"],
+  "points": [
+    {
+      "id": "unique-string-or-number",
+      "lang": "en",
+      "text": "shown in tooltip + detail panel",
+      "vector": [0.1, -0.4, ...],
+      "pairId": 0
+    }
+  ]
+}</pre>
+        <p><code>vector</code> can be any length, but every point must have the same length.</p>
+        <p><code>pairId</code> is optional — points sharing one are treated as translations of each other (isolated together on click). Omit it entirely if your data isn't parallel; each point will isolate alone instead.</p>
+        <p><code>dim</code> / <code>lang_codes</code> are inferred automatically if omitted.</p>
+      </div>
+      <label for="method-select">Projection method:</label>
+      <select id="method-select">
+        <option value="umap">UMAP</option>
+        <option value="tsne">t-SNE</option>
+      </select>
+    </div>
+    <div id="status">Loading...</div>
+
+    <div id="lang-filter-controls">
+      <label for="lang-search">Filter languages:</label>
+      <input type="text" id="lang-search" placeholder="Type to search...">
+      <div id="lang-suggestions"></div>
+      <div id="lang-chips"></div>
+    </div>
+
+    <div id="detail-placeholder">Click a point to see its translations</div>
+    <div id="detail-lang"></div>
+    <div id="detail-text"></div>
+    <div id="detail-translations"></div>
+  </div>
+
+  <div id="main">
+    <div id="projection">
+      <div id="projection-hint">Loading embeddings and running UMAP...</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
