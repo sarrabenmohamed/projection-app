@@ -33,21 +33,21 @@ then accept the terms at https://huggingface.co/datasets/facebook/flores
 python3 -m uvicorn server:app --port 8500
 ```
 Leave this running. On first startup (or whenever the requested config
-changes), it computes the default dataset — 5 languages x 200 sentences,
+changes), it computes the default dataset — 40 languages x 200 sentences,
 `xlm-roberta-base`, last layer, plus per-token vectors — and caches it to
 `data/flores_embeddings.json`; later startups with the same config load
 that cache instead (seconds instead of minutes). Serves `/points`,
 `/project`, `/project/tokens/{id}`, and `/dataset` on port 8500.
 
-Customize via env vars, e.g. more languages:
+The 40-language default takes a while on a cache miss (each language is a
+separate model pass over 200 sentences). Customize via env vars, e.g. to
+run with just a handful of languages instead:
 ```bash
 PROJECTION_LANGUAGES=eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans,jpn_Jpan,kor_Hang \
 PROJECTION_N_SENTENCES=200 \
 PROJECTION_MODEL=xlm-roberta-base \
     python3 -m uvicorn server:app --port 8500
 ```
-More languages = proportionally longer on a cache miss (each language is a
-separate model pass over `PROJECTION_N_SENTENCES` sentences).
 
 ## 4. Start the frontend (separate terminal)
 

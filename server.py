@@ -58,7 +58,12 @@ from sklearn.manifold import TSNE
 import embedding_pipeline
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "data" / "flores_embeddings.json"
-DEFAULT_LANGUAGES = "eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans"
+DEFAULT_LANGUAGES = (
+    "eng_Latn,zho_Hans,zho_Hant,spa_Latn,fra_Latn,deu_Latn,jpn_Jpan,kor_Hang,rus_Cyrl,por_Latn,"
+    "ita_Latn,nld_Latn,pol_Latn,tur_Latn,vie_Latn,ind_Latn,tha_Thai,ukr_Cyrl,swe_Latn,ces_Latn,"
+    "ron_Latn,hun_Latn,fin_Latn,dan_Latn,heb_Hebr,arb_Arab,pes_Arab,urd_Arab,hin_Deva,ben_Beng,"
+    "tam_Taml,tel_Telu,mal_Mlym,kan_Knda,guj_Gujr,pan_Guru,sin_Sinh,mya_Mymr,khm_Khmr,amh_Ethi"
+)
 DEFAULT_N_SENTENCES = 200
 DEFAULT_MODEL = "xlm-roberta-base"
 
