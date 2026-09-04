@@ -295,9 +295,6 @@ SAMPLE_DATASET = {
 @pytest.fixture
 def client():
     server.DATASET["data"] = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
-    server.DATASET["generation"] += 1
-    server._REDUCER_CACHE["generation"] = -1
-    server._REDUCER_CACHE["reducer"] = None
     return TestClient(server.app)
 
 
@@ -758,7 +755,26 @@ def test_project_tokens_400_when_point_has_no_token_vectors(client):
 Run: `python3 -m pytest tests/test_server.py -v`
 Expected: FAIL — `test_project_umap_refits_only_when_dataset_changes` fails because `/project` refits every call (2 fits before the `/dataset` POST, not 1); `/project/tokens/{id}` tests fail with 404 "Not Found" (route doesn't exist).
 
-- [ ] **Step 3: Add a reducer cache next to `DATASET`**
+- [ ] **Step 3: Bump the dataset generation in the test fixture**
+
+The reducer cache (added in the next step) is keyed on `DATASET["generation"]`. Without bumping it per test, a reducer fit by an earlier test could be silently reused for a later test's different dataset. In `tests/test_server.py`, find:
+
+```python
+def client():
+    server.DATASET["data"] = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
+    return TestClient(server.app)
+```
+
+Replace with:
+
+```python
+def client():
+    server.DATASET["data"] = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
+    server.DATASET["generation"] += 1
+    return TestClient(server.app)
+```
+
+- [ ] **Step 4: Add a reducer cache next to `DATASET`**
 
 In `server.py`, find:
 
@@ -773,7 +789,7 @@ DATASET: dict = {"data": None, "generation": 0}
 _REDUCER_CACHE: dict = {"generation": -1, "reducer": None}
 ```
 
-- [ ] **Step 4: Replace `project()` to fit-once/reuse for UMAP, and add the token endpoint**
+- [ ] **Step 5: Replace `project()` to fit-once/reuse for UMAP, and add the token endpoint**
 
 In `server.py`, find:
 
@@ -875,7 +891,7 @@ def project_tokens(point_id: str) -> dict:
     }
 ```
 
-- [ ] **Step 5: Update the module docstring's endpoint list**
+- [ ] **Step 6: Update the module docstring's endpoint list**
 
 In `server.py`, find:
 
@@ -905,12 +921,12 @@ Endpoints:
 """
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_server.py -v`
 Expected: 15 passed.
 
-- [ ] **Step 7: Update the README project layout**
+- [ ] **Step 8: Update the README project layout**
 
 In `README.md`, find:
 
@@ -952,7 +968,7 @@ requirements.txt
 requirements-dev.txt                # adds pytest, for running tests/
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add server.py README.md tests/test_server.py
