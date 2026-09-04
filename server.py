@@ -74,6 +74,19 @@ def validate_and_normalize(raw: dict) -> dict:
                 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vec)):
             raise ValueError(f'points[{i}].vector must be an array of {dim} finite numbers')
 
+        tvecs = p.get("tokenVectors")
+        if tvecs is not None:
+            if not isinstance(tvecs, list) or len(tvecs) == 0:
+                raise ValueError(f'points[{i}].tokenVectors must be a non-empty array')
+            for j, t in enumerate(tvecs):
+                tvec = t.get("vector") if isinstance(t, dict) else None
+                if (not isinstance(t, dict) or not isinstance(t.get("token"), str)
+                        or not isinstance(tvec, list) or len(tvec) != dim
+                        or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in tvec)):
+                    raise ValueError(
+                        f'points[{i}].tokenVectors[{j}] must be {{"token": str, "vector": array of {dim} finite numbers}}'
+                    )
+
     return {
         "model": raw.get("model") or "unknown model",
         "layer": raw.get("layer") or "unknown",
@@ -119,7 +132,10 @@ def get_points() -> dict:
         "dim": d["dim"],
         "lang_codes": d["lang_codes"],
         "points": [
-            {"id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text")}
+            {
+                "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
+                "hasTokens": p.get("tokenVectors") is not None,
+            }
             for p in d["points"]
         ],
     }
