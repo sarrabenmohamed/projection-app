@@ -73,6 +73,8 @@ export class ProjectionView {
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
   setTokenOverlay(tokenPoints) { this.pointLayer.setTokenOverlay(tokenPoints); }
   clearTokenOverlay() { this.pointLayer.clearTokenOverlay(); }
+  setSelectedId(id) { this.pointLayer.setSelectedId(id); }
+  clearSelectedId() { this.pointLayer.clearSelectedId(); }
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);

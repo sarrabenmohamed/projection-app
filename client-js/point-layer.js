@@ -25,6 +25,7 @@ export class PointLayer {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlay = [];
+    this._selectedId = null;
   }
 
   setPoints(points, baseXScale, baseYScale) {
@@ -32,9 +33,24 @@ export class PointLayer {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlay = [];
+    this._selectedId = null;
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
+  }
+
+  // Selection is independent of the isolate-fade group and of hover: a
+  // point can be selected without anything being faded (selecting no
+  // longer isolates by itself — that's driven by the data table's
+  // "Show translations" action instead).
+  setSelectedId(id) {
+    this._selectedId = id;
+    this._onChange();
+  }
+
+  clearSelectedId() {
+    this._selectedId = null;
+    this._onChange();
   }
 
   // Token points for one currently-selected sentence, embedded into the
@@ -101,6 +117,14 @@ export class PointLayer {
       ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
       ctx.strokeStyle = hovered ? '#333' : '#fff';
       ctx.stroke();
+      if (d.id === this._selectedId) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
+        ctx.globalAlpha = d.opacity;
+        ctx.lineWidth = 1.8 / transform.k;
+        ctx.strokeStyle = '#1a73e8';
+        ctx.stroke();
+      }
     }
     for (const d of this._tokenOverlay) {
       const cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
