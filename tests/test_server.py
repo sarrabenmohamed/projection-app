@@ -61,3 +61,57 @@ def test_points_endpoint_reports_has_tokens(client):
     by_id = {p["id"]: p for p in body["points"]}
     assert by_id["en-0"]["hasTokens"] is False
     assert by_id["en-1"]["hasTokens"] is True
+
+
+def test_pipeline_config_reads_env_vars(monkeypatch):
+    monkeypatch.setenv("PROJECTION_LANGUAGES", "eng_Latn,deu_Latn")
+    monkeypatch.setenv("PROJECTION_N_SENTENCES", "50")
+    monkeypatch.setenv("PROJECTION_MODEL", "some-model")
+    assert server._pipeline_config() == {
+        "lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 50, "model": "some-model",
+    }
+
+
+def test_cache_matches_true_when_config_matches():
+    cached = {"model": "m", "lang_codes": ["a", "b"], "points": [{"lang": "a"}, {"lang": "a"}, {"lang": "b"}, {"lang": "b"}]}
+    config = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 2}
+    assert server._cache_matches(cached, config) is True
+
+
+def test_cache_matches_false_on_model_mismatch():
+    cached = {"model": "old", "lang_codes": ["a"], "points": [{"lang": "a"}]}
+    config = {"model": "new", "lang_codes": ["a"], "n_sentences": 1}
+    assert server._cache_matches(cached, config) is False
+
+
+def test_cache_matches_false_on_sentence_count_mismatch():
+    cached = {"model": "m", "lang_codes": ["a"], "points": [{"lang": "a"}]}
+    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 2}
+    assert server._cache_matches(cached, config) is False
+
+
+def test_load_or_build_dataset_uses_cache_on_hit(tmp_path):
+    cache_path = tmp_path / "cache.json"
+    cached = {"model": "m", "lang_codes": ["a"], "points": [{"lang": "a", "id": "a-0", "vector": [0.0]}]}
+    cache_path.write_text(json.dumps(cached))
+    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1}
+
+    def fake_builder(*args):
+        raise AssertionError("builder should not be called on a cache hit")
+
+    result = server._load_or_build_dataset(cache_path, config, fake_builder)
+    assert result == cached
+
+
+def test_load_or_build_dataset_rebuilds_on_cache_miss(tmp_path):
+    cache_path = tmp_path / "cache.json"
+    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1}
+    built = {"model": "m", "lang_codes": ["a"], "points": [{"lang": "a", "id": "a-0", "vector": [0.0]}]}
+
+    def fake_builder(lang_codes, n_sentences, model_name):
+        assert (lang_codes, n_sentences, model_name) == (["a"], 1, "m")
+        return built
+
+    result = server._load_or_build_dataset(cache_path, config, fake_builder)
+    assert result == built
+    assert json.loads(cache_path.read_text()) == built
