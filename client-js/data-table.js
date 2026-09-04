@@ -11,9 +11,12 @@ const PAGE_SIZE = 50;
 // baked into the app — so anything rendered into a cell goes through this
 // before it touches innerHTML.
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export class DataTable {
@@ -215,7 +218,7 @@ export class DataTable {
       <td>${escapeHtml(String(p.id))}</td>
       <td>${escapeHtml(p.lang)}</td>
       <td class="dt-text" title="${escapeHtml(p.text)}">${escapeHtml(p.text)}</td>
-      <td>${p.pairId ?? ''}</td>
+      <td>${escapeHtml(String(p.pairId ?? ''))}</td>
       <td><span class="dt-type dt-type-sentence">sentence</span></td>
       <td class="dt-text">${p.hasTokens ? escapeHtml(p.tokenTexts.join(', ')) : ''}</td>
       <td class="dt-actions-cell"></td>
