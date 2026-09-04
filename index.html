@@ -27,10 +27,14 @@
       "lang": "en",
       "text": "shown in tooltip + detail panel",
       "vector": [0.1, -0.4, ...],
-      "pairId": 0
+      "pairId": 0,
+      "tokenVectors": [
+        {"token": "shown", "vector": [0.2, -0.1, ...]}
+      ]
     }
   ]
 }</pre>
+        <p><code>tokenVectors</code> is optional — if present, a "Show tokens" button appears when this point is selected, projecting its tokens into the same UMAP space as the main plot.</p>
         <p><code>vector</code> can be any length, but every point must have the same length.</p>
         <p><code>pairId</code> is optional — points sharing one are treated as translations of each other (isolated together on click). Omit it entirely if your data isn't parallel; each point will isolate alone instead.</p>
         <p><code>dim</code> / <code>lang_codes</code> are inferred automatically if omitted.</p>
@@ -54,6 +58,7 @@
     <div id="detail-lang"></div>
     <div id="detail-text"></div>
     <div id="detail-translations"></div>
+    <button type="button" id="detail-tokens-toggle">Show tokens</button>
   </div>
 
   <div id="main">
