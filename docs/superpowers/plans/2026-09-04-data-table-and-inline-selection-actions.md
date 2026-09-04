@@ -569,7 +569,7 @@ export class DataTable {
     } else {
       const q = this._search.trim().toLowerCase();
       rows = q
-        ? this.points.filter(p => p.lang.toLowerCase().includes(q) || p.text.toLowerCase().includes(q))
+        ? this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q))
         : this.points;
     }
     if (this._sortKey) {
