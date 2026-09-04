@@ -15,6 +15,10 @@ export class BackendClient {
     return this._request(`/project?method=${method}`);
   }
 
+  fetchTokenProjection(id) {
+    return this._request(`/project/tokens/${encodeURIComponent(id)}`);
+  }
+
   postDataset(raw) {
     return this._request('/dataset', {
       method: 'POST',

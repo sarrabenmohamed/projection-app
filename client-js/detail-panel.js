@@ -1,11 +1,13 @@
-// The sidebar detail panel shown when a point is selected alongside its translations.
+// The sidebar detail panel shown when a point is selected alongside its
+// translations and an optional per-point token-embedding toggle.
 
 export class DetailPanel {
-  constructor({ placeholderId, langId, textId, translationsId }) {
+  constructor({ placeholderId, langId, textId, translationsId, tokensToggleId }) {
     this.placeholder = document.getElementById(placeholderId);
     this.langEl = document.getElementById(langId);
     this.textEl = document.getElementById(textId);
     this.transEl = document.getElementById(translationsId);
+    this.tokensToggle = document.getElementById(tokensToggleId);
   }
 
   show(point, translations) {
@@ -25,6 +27,9 @@ export class DetailPanel {
       this.transEl.innerHTML = '<b>Translations</b>' +
         translations.map(p => `<div><i>${p.lang}</i>: ${p.text}</div>`).join('');
     }
+
+    this.tokensToggle.style.display = point.hasTokens ? 'block' : 'none';
+    this.setTokensShown(false);
   }
 
   clear() {
@@ -33,5 +38,10 @@ export class DetailPanel {
       el.style.display = 'none';
       el.textContent = '';
     });
+    this.tokensToggle.style.display = 'none';
+  }
+
+  setTokensShown(shown) {
+    this.tokensToggle.textContent = shown ? 'Hide tokens' : 'Show tokens';
   }
 }
