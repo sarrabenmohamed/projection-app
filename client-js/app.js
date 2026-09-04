@@ -16,8 +16,6 @@ class App {
     this.detail = new DetailPanel({
       placeholderId: 'detail-placeholder',
       langId: 'detail-lang',
-      textId: 'detail-text',
-      translationsId: 'detail-translations',
       tokensToggleId: 'detail-tokens-toggle',
     });
     this.langFilter = new LangFilter(
@@ -130,8 +128,7 @@ class App {
     this._selectedGroupKey = d.groupKey;
     this._selectedPoint = d;
     this.view.highlightParallel(d.groupKey);
-    const translations = this.points.filter(p => p.groupKey === d.groupKey && p.id !== d.id);
-    this.detail.show(d, translations);
+    this.detail.show(d);
   }
 
   onBackgroundClick() {
