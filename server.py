@@ -37,8 +37,8 @@ from typing import Callable, Literal
 
 # umap-learn unconditionally imports its optional ParametricUMAP submodule,
 # which unconditionally does `import tensorflow`. On machines where the
-# installed tensorflow hangs on import (see scripts/prepare_flores_embeddings.py
-# for the same issue with transformers), this stub makes that import resolve
+# installed tensorflow hangs on import (see embedding_pipeline.py for the
+# same issue with transformers), this stub makes that import resolve
 # instantly instead of hanging — umap/__init__.py already falls back to a
 # dummy ParametricUMAP class when tensorflow isn't usable, we just need the
 # import itself to not hang.
@@ -129,7 +129,10 @@ def _cache_matches(cached: dict, config: dict) -> bool:
         return False
     if sorted(cached.get("lang_codes") or []) != sorted(config["lang_codes"]):
         return False
-    counts = Counter(p["lang"] for p in cached.get("points", []))
+    points = cached.get("points", [])
+    if not points or points[0].get("tokenVectors") is None:
+        return False
+    counts = Counter(p["lang"] for p in points)
     return all(counts.get(code) == config["n_sentences"] for code in config["lang_codes"])
 
 
@@ -150,7 +153,11 @@ def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) ->
 def load_default_dataset() -> None:
     config = _pipeline_config()
     print(f"Preparing default dataset: {config}")
-    raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
+    try:
+        raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
+    except Exception as e:
+        print(f"Could not prepare default dataset ({e}) — POST /dataset to load one.")
+        return
     DATASET["data"] = validate_and_normalize(raw)
     DATASET["generation"] += 1
     print(f"Loaded default dataset: {len(DATASET['data']['points'])} points")
