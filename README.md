@@ -66,6 +66,11 @@ Then open **http://localhost:8000** in a browser.
   real colors; everything unselected stays neutral gray. Clear the filter to
   return to the neutral, shape-only view.
 - **Projection method** — switch between UMAP and t-SNE; re-runs server-side.
+- **Show/hide tokens** — with a point selected, click "Show tokens" in the
+  sidebar to see that sentence's individual token embeddings projected into
+  the same UMAP space (auto-switches the projection method to UMAP if
+  needed, since t-SNE can't share axes with a second projection). Click
+  again to hide them.
 - **Load embeddings JSON** — upload your own dataset instead of the default
   one; click "?" for the exact format.
 

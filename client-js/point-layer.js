@@ -24,15 +24,41 @@ export class PointLayer {
     this._activeGroupKey = null;
     this._selectedLangs = new Set();
     this._langColorScale = null;
+    this._tokenOverlay = [];
   }
 
   setPoints(points, baseXScale, baseYScale) {
     this._activeGroupKey = null;
     this._selectedLangs = new Set();
     this._langColorScale = null;
+    this._tokenOverlay = [];
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
+  }
+
+  // Token points for one currently-selected sentence, embedded into the
+  // same UMAP space as `this.points` via the backend's shared reducer —
+  // drawn on the same axes but tracked separately so they're unaffected by
+  // the isolate-fade opacity animation and don't participate in click-to-
+  // isolate grouping.
+  setTokenOverlay(tokenPoints) {
+    this._tokenOverlay = tokenPoints;
+    this._onChange();
+  }
+
+  clearTokenOverlay() {
+    this._tokenOverlay = [];
+    this._onChange();
+  }
+
+  tokenOverlayPointAt(x, y, radius) {
+    for (const d of this._tokenOverlay) {
+      const dx = this.baseXScale(d.x) - x;
+      const dy = this.baseYScale(d.y) - y;
+      if (Math.hypot(dx, dy) <= radius) return d;
+    }
+    return undefined;
   }
 
   // langs = the currently selected subset from the language filter (may be
@@ -74,6 +100,22 @@ export class PointLayer {
       ctx.globalAlpha = d.opacity;
       ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
       ctx.strokeStyle = hovered ? '#333' : '#fff';
+      ctx.stroke();
+    }
+    for (const d of this._tokenOverlay) {
+      const cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+      const size = 5 / transform.k;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - size);
+      ctx.lineTo(cx + size, cy);
+      ctx.lineTo(cx, cy + size);
+      ctx.lineTo(cx - size, cy);
+      ctx.closePath();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#e63946';
+      ctx.fill();
+      ctx.lineWidth = 0.75 / transform.k;
+      ctx.strokeStyle = '#fff';
       ctx.stroke();
     }
     ctx.restore();
