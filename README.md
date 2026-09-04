@@ -15,48 +15,39 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 2. Get a dataset
+## 2. One-time Hugging Face setup
 
-**Option A — generate the default FLORES-200 dataset:**
-
-One-time setup: log in to Hugging Face and accept the FLORES-200 dataset
-terms (required once per account):
+The backend computes the default FLORES-200 dataset itself on first
+startup, but FLORES-200 requires accepting its terms once per account:
 
 ```bash
 python3 -c "from huggingface_hub import login; login()"
 ```
 then accept the terms at https://huggingface.co/datasets/facebook/flores
 
-Then run the prep script (defaults to 5 languages × 200 sentences,
-`xlm-roberta-base`, last layer — takes a few minutes):
-
-```bash
-python3 scripts/prepare_flores_embeddings.py
-```
-
-Customize with flags, e.g. more languages:
-```bash
-python3 scripts/prepare_flores_embeddings.py \
-    --languages eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans,jpn_Jpan,kor_Hang \
-    --n-sentences 200 \
-    --model xlm-roberta-base \
-    --output data/flores_embeddings.json
-```
-More languages = proportionally longer (each language is a separate model
-pass over `--n-sentences` sentences). This writes to `data/flores_embeddings.json`,
-which `server.py` loads automatically on startup.
-
-**Option B — skip this and upload your own embeddings** once the app is
-running (see step 4). Click the "?" next to "Load embeddings JSON" in the
-sidebar for the exact JSON format it expects.
+(Skip this if you only plan to upload your own embeddings — see step 4.)
 
 ## 3. Start the backend
 
 ```bash
 python3 -m uvicorn server:app --port 8500
 ```
-Leave this running. It loads `data/flores_embeddings.json` on startup (if
-present) and serves `/points`, `/project`, and `/dataset` on port 8500.
+Leave this running. On first startup (or whenever the requested config
+changes), it computes the default dataset — 5 languages x 200 sentences,
+`xlm-roberta-base`, last layer, plus per-token vectors — and caches it to
+`data/flores_embeddings.json`; later startups with the same config load
+that cache instead (seconds instead of minutes). Serves `/points`,
+`/project`, `/project/tokens/{id}`, and `/dataset` on port 8500.
+
+Customize via env vars, e.g. more languages:
+```bash
+PROJECTION_LANGUAGES=eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans,jpn_Jpan,kor_Hang \
+PROJECTION_N_SENTENCES=200 \
+PROJECTION_MODEL=xlm-roberta-base \
+    python3 -m uvicorn server:app --port 8500
+```
+More languages = proportionally longer on a cache miss (each language is a
+separate model pass over `PROJECTION_N_SENTENCES` sentences).
 
 ## 4. Start the frontend (separate terminal)
 
@@ -75,6 +66,11 @@ Then open **http://localhost:8000** in a browser.
   real colors; everything unselected stays neutral gray. Clear the filter to
   return to the neutral, shape-only view.
 - **Projection method** — switch between UMAP and t-SNE; re-runs server-side.
+- **Show/hide tokens** — with a point selected, click "Show tokens" in the
+  sidebar to see that sentence's individual token embeddings projected into
+  the same UMAP space (auto-switches the projection method to UMAP if
+  needed, since t-SNE can't share axes with a second projection). Click
+  again to hide them.
 - **Load embeddings JSON** — upload your own dataset instead of the default
   one; click "?" for the exact format.
 
@@ -106,7 +102,9 @@ client-js/
   lang-filter.js                    # searchable multi-select language filter
   backend-client.js                 # fetch wrapper for server.py's endpoints
   detail-panel.js                   # sidebar detail-on-click panel
-server.py                           # FastAPI backend: /points, /project, /dataset
-scripts/prepare_flores_embeddings.py  # FLORES-200 + XLM-R embedding prep pipeline
+server.py                           # FastAPI backend: /points, /project, /project/tokens/{id}, /dataset
+embedding_pipeline.py                # FLORES-200 + XLM-R embedding pipeline (sentence + token vectors)
+tests/                               # pytest suite for embedding_pipeline.py and server.py
 requirements.txt
+requirements-dev.txt                # adds pytest, for running tests/
 ```
