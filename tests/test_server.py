@@ -68,6 +68,14 @@ def test_points_endpoint_reports_has_tokens(client):
     assert by_id["en-1"]["hasTokens"] is True
 
 
+def test_points_endpoint_reports_token_texts(client):
+    res = client.get("/points")
+    body = res.json()
+    by_id = {p["id"]: p for p in body["points"]}
+    assert by_id["en-0"]["tokenTexts"] is None
+    assert by_id["en-1"]["tokenTexts"] == ["bye", "!"]
+
+
 def test_pipeline_config_reads_env_vars(monkeypatch):
     monkeypatch.setenv("PROJECTION_LANGUAGES", "eng_Latn,deu_Latn")
     monkeypatch.setenv("PROJECTION_N_SENTENCES", "50")

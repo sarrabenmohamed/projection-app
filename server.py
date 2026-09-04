@@ -199,6 +199,7 @@ def get_points() -> dict:
             {
                 "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
                 "hasTokens": p.get("tokenVectors") is not None,
+                "tokenTexts": [t["token"] for t in p["tokenVectors"]] if p.get("tokenVectors") is not None else None,
             }
             for p in d["points"]
         ],
