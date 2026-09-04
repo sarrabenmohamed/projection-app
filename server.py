@@ -58,6 +58,8 @@ from sklearn.manifold import TSNE
 import embedding_pipeline
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "data" / "flores_embeddings.json"
+# The 40 languages FLORES-200 covers with reasonable coverage across major
+# scripts/families; override with PROJECTION_LANGUAGES for a smaller/faster set.
 DEFAULT_LANGUAGES = (
     "eng_Latn,zho_Hans,zho_Hant,spa_Latn,fra_Latn,deu_Latn,jpn_Jpan,kor_Hang,rus_Cyrl,por_Latn,"
     "ita_Latn,nld_Latn,pol_Latn,tur_Latn,vie_Latn,ind_Latn,tha_Thai,ukr_Cyrl,swe_Latn,ces_Latn,"
