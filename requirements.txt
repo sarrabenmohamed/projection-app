@@ -1,9 +1,9 @@
-# scripts/prepare_flores_embeddings.py
+# Embedding pipeline (embedding_pipeline.py)
 torch
 transformers
 datasets
 
-# server.py
+# Backend server (server.py)
 fastapi
 uvicorn
 umap-learn
