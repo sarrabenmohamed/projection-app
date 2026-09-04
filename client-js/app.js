@@ -18,6 +18,7 @@ class App {
       langId: 'detail-lang',
       textId: 'detail-text',
       translationsId: 'detail-translations',
+      tokensToggleId: 'detail-tokens-toggle',
     });
     this.langFilter = new LangFilter(
       { inputId: 'lang-search', suggestionsId: 'lang-suggestions', chipsId: 'lang-chips' },
@@ -25,6 +26,8 @@ class App {
     );
     this.points = [];
     this._selectedGroupKey = null;
+    this._selectedPoint = null;
+    this._tokenOverlayPointId = null;
   }
 
   init() {
@@ -37,6 +40,8 @@ class App {
       .addEventListener('change', () => this._refresh());
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
+    document.getElementById('detail-tokens-toggle')
+      .addEventListener('click', () => this.onToggleTokens());
 
     this._refresh();
   }
@@ -93,6 +98,8 @@ class App {
     if (hint) hint.remove();
 
     this._selectedGroupKey = null;
+    this._selectedPoint = null;
+    this._tokenOverlayPointId = null;
     this.view.clearHighlight();
     this.detail.clear();
 
@@ -119,7 +126,9 @@ class App {
       this.onBackgroundClick();
       return;
     }
+    this._clearTokenOverlay();
     this._selectedGroupKey = d.groupKey;
+    this._selectedPoint = d;
     this.view.highlightParallel(d.groupKey);
     const translations = this.points.filter(p => p.groupKey === d.groupKey && p.id !== d.id);
     this.detail.show(d, translations);
@@ -127,9 +136,60 @@ class App {
 
   onBackgroundClick() {
     if (this._selectedGroupKey === null) return;
+    this._clearTokenOverlay();
     this._selectedGroupKey = null;
+    this._selectedPoint = null;
     this.view.clearHighlight();
     this.detail.clear();
+  }
+
+  // Toggles the token overlay for the currently selected point. Token
+  // projection only exists in the shared UMAP space (see server.py's
+  // _get_umap_reducer), so if the main view is on t-SNE this switches it to
+  // UMAP first — re-running _refresh() resets selection state, so the
+  // point is re-selected afterward by id before fetching its tokens.
+  async onToggleTokens() {
+    if (!this._selectedPoint) return;
+    const pointId = this._selectedPoint.id;
+
+    if (this._tokenOverlayPointId === pointId) {
+      this._clearTokenOverlay();
+      return;
+    }
+
+    const methodSelect = document.getElementById('method-select');
+    if (methodSelect.value !== 'umap') {
+      methodSelect.value = 'umap';
+      await this._refresh();
+      const reselected = this.points.find(p => p.id === pointId);
+      if (!reselected) return;
+      this.onClickPoint(reselected);
+      document.getElementById('status').textContent += ' · switched to UMAP to show tokens';
+    }
+
+    let proj;
+    try {
+      proj = await this.backend.fetchTokenProjection(pointId);
+    } catch (err) {
+      document.getElementById('status').textContent = err.message;
+      return;
+    }
+
+    this._tokenOverlayPointId = pointId;
+    this.detail.setTokensShown(true);
+    this.view.setTokenOverlay(proj.tokens.map((t, i) => ({
+      id: `${pointId}::${i}`,
+      text: t.token,
+      x: t.x,
+      y: t.y,
+    })));
+  }
+
+  _clearTokenOverlay() {
+    if (this._tokenOverlayPointId === null) return;
+    this._tokenOverlayPointId = null;
+    this.detail.setTokensShown(false);
+    this.view.clearTokenOverlay();
   }
 }
 

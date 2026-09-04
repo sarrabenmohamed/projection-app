@@ -71,6 +71,8 @@ export class ProjectionView {
   highlightParallel(groupKey) { this.pointLayer.highlightGroup(groupKey); }
   clearHighlight() { this.pointLayer.clear(); }
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
+  setTokenOverlay(tokenPoints) { this.pointLayer.setTokenOverlay(tokenPoints); }
+  clearTokenOverlay() { this.pointLayer.clearTokenOverlay(); }
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);
@@ -107,7 +109,16 @@ export class ProjectionView {
     return found;
   }
 
+  _overlayPointAt(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left - this.margin.left;
+    const screenY = event.clientY - rect.top - this.margin.top;
+    const [x, y] = this.axes.transform.invert([screenX, screenY]);
+    return this.pointLayer.tokenOverlayPointAt(x, y, 8 / this.axes.transform.k);
+  }
+
   _onCanvasClick(event) {
+    if (this._overlayPointAt(event)) return; // token overlay points aren't clickable, just hoverable
     const d = this._pointAt(event);
     if (d) {
       this._onClickPoint?.(d);
@@ -117,6 +128,18 @@ export class ProjectionView {
   }
 
   _onCanvasMouseMove(event) {
+    const overlayHit = this._overlayPointAt(event);
+    if (overlayHit) {
+      const rect = this.el.getBoundingClientRect();
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, overlayHit.text);
+      this.canvas.style.cursor = 'default';
+      if (this._hoveredId !== null) {
+        this._hoveredId = null;
+        this._draw();
+      }
+      return;
+    }
+
     const d = this._pointAt(event);
     const hoveredId = d ? d.id : null;
     if (hoveredId !== this._hoveredId) {
