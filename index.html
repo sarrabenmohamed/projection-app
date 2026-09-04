@@ -34,7 +34,7 @@
     }
   ]
 }</pre>
-        <p><code>tokenVectors</code> is optional — if present, a "Show tokens" button appears when this point is selected, projecting its tokens into the same UMAP space as the main plot.</p>
+        <p><code>tokenVectors</code> is optional — if present, selecting this point in the data table reveals a "Show tokens" action, projecting its tokens into the same UMAP space as the main plot.</p>
         <p><code>vector</code> can be any length, but every point must have the same length.</p>
         <p><code>pairId</code> is optional — points sharing one are treated as translations of each other (isolated together on click). Omit it entirely if your data isn't parallel; each point will isolate alone instead.</p>
         <p><code>dim</code> / <code>lang_codes</code> are inferred automatically if omitted.</p>
@@ -53,11 +53,9 @@
       <div id="lang-suggestions"></div>
       <div id="lang-chips"></div>
     </div>
-
-    <div id="detail-placeholder">Click a point to isolate its translations</div>
-    <div id="detail-lang"></div>
-    <button type="button" id="detail-tokens-toggle">Show tokens</button>
   </div>
+
+  <div id="data-table"></div>
 
   <div id="main">
     <div id="projection">
