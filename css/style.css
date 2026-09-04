@@ -51,9 +51,6 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 
 #detail-placeholder { color: #bbb; margin-top: 20px; text-align: center; font-size: 0.9em; }
 #detail-lang { font-size: 0.85em; font-weight: bold; display: none; margin-top: 20px; }
-#detail-text { font-size: 0.85em; color: #333; line-height: 1.5; display: none; margin-top: 6px; }
-#detail-translations { font-size: 0.8em; color: #555; line-height: 1.6; display: none; margin-top: 12px; }
-#detail-translations b { display: block; margin-bottom: 4px; }
 
 #detail-tokens-toggle { display: none; margin-top: 12px; font-size: 0.78em; padding: 4px 10px; cursor: pointer; }
 
