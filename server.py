@@ -21,11 +21,15 @@ Endpoints:
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import math
+import os
 import sys
 import types
+from collections import Counter
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 # umap-learn unconditionally imports its optional ParametricUMAP submodule,
 # which unconditionally does `import tensorflow`. On machines where the
@@ -34,7 +38,12 @@ from typing import Literal
 # instantly instead of hanging — umap/__init__.py already falls back to a
 # dummy ParametricUMAP class when tensorflow isn't usable, we just need the
 # import itself to not hang.
-sys.modules.setdefault("tensorflow", types.ModuleType("tensorflow"))
+if "tensorflow" not in sys.modules:
+    tf_stub = types.ModuleType("tensorflow")
+    # Create a proper spec so torch's dynamic import doesn't fail
+    spec = importlib.util.spec_from_loader("tensorflow", loader=None)
+    tf_stub.__spec__ = spec
+    sys.modules["tensorflow"] = tf_stub
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -42,7 +51,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import umap
 from sklearn.manifold import TSNE
 
+import embedding_pipeline
+
 DEFAULT_DATA_PATH = Path(__file__).parent / "data" / "flores_embeddings.json"
+DEFAULT_LANGUAGES = "eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans"
+DEFAULT_N_SENTENCES = 200
+DEFAULT_MODEL = "xlm-roberta-base"
 
 app = FastAPI()
 app.add_middleware(
@@ -52,7 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATASET: dict = {"data": None}
+DATASET: dict = {"data": None, "generation": 0}
 
 
 def validate_and_normalize(raw: dict) -> dict:
@@ -96,14 +110,44 @@ def validate_and_normalize(raw: dict) -> dict:
     }
 
 
+def _pipeline_config() -> dict:
+    langs = os.environ.get("PROJECTION_LANGUAGES", DEFAULT_LANGUAGES)
+    return {
+        "lang_codes": [c.strip() for c in langs.split(",") if c.strip()],
+        "n_sentences": int(os.environ.get("PROJECTION_N_SENTENCES", DEFAULT_N_SENTENCES)),
+        "model": os.environ.get("PROJECTION_MODEL", DEFAULT_MODEL),
+    }
+
+
+def _cache_matches(cached: dict, config: dict) -> bool:
+    if cached.get("model") != config["model"]:
+        return False
+    if sorted(cached.get("lang_codes") or []) != sorted(config["lang_codes"]):
+        return False
+    counts = Counter(p["lang"] for p in cached.get("points", []))
+    return all(counts.get(code) == config["n_sentences"] for code in config["lang_codes"])
+
+
+def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) -> dict:
+    """builder(lang_codes, n_sentences, model_name) -> dataset dict, same shape as the cache file."""
+    if cache_path.exists():
+        cached = json.loads(cache_path.read_text())
+        if _cache_matches(cached, config):
+            return cached
+
+    built = builder(config["lang_codes"], config["n_sentences"], config["model"])
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(built))
+    return built
+
+
 @app.on_event("startup")
 def load_default_dataset() -> None:
-    if not DEFAULT_DATA_PATH.exists():
-        print(f"No default dataset at {DEFAULT_DATA_PATH} — POST /dataset to load one.")
-        return
-    import json
-    raw = json.loads(DEFAULT_DATA_PATH.read_text())
+    config = _pipeline_config()
+    print(f"Preparing default dataset: {config}")
+    raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
     DATASET["data"] = validate_and_normalize(raw)
+    DATASET["generation"] += 1
     print(f"Loaded default dataset: {len(DATASET['data']['points'])} points")
 
 
@@ -119,6 +163,7 @@ async def set_dataset(raw: dict) -> dict:
         DATASET["data"] = validate_and_normalize(raw)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    DATASET["generation"] += 1
     d = DATASET["data"]
     return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
 
