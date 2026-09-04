@@ -100,7 +100,7 @@ class App {
     this.points = meta.points.map(p => {
       const c = coordsById.get(p.id);
       return {
-        id: p.id, lang: p.lang, text: p.text,
+        id: p.id, lang: p.lang, text: p.text, hasTokens: p.hasTokens,
         // no pairId at all -> each point is its own group, so it isolates alone on click
         groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
         x: c.x, y: c.y,
