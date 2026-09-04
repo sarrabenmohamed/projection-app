@@ -12,29 +12,42 @@ TODO: modularize and separate -> services layer? CRUD?
 TODO: check edge cases, consider pagination...
 
 Endpoints:
-    POST /dataset            body = same JSON shape the frontend's file
-                              picker validates client-side; stores it as the
-                              current dataset.
-    GET  /points             metadata only (no vectors) for rendering.
-    GET  /project?method=... 2D coordinates, computed on the stored vectors.
+    POST /dataset                body = same JSON shape the frontend's file
+                                  picker validates client-side; stores it as
+                                  the current dataset.
+    GET  /points                 metadata only (no vectors) for rendering.
+    GET  /project?method=...     2D coordinates, computed on the stored
+                                  sentence vectors.
+    GET  /project/tokens/{id}    2D coordinates for one point's token
+                                  vectors, embedded into the same UMAP space
+                                  as /project?method=umap via .transform().
 """
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import math
+import os
 import sys
 import types
+from collections import Counter
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 # umap-learn unconditionally imports its optional ParametricUMAP submodule,
 # which unconditionally does `import tensorflow`. On machines where the
-# installed tensorflow hangs on import (see scripts/prepare_flores_embeddings.py
-# for the same issue with transformers), this stub makes that import resolve
+# installed tensorflow hangs on import (see embedding_pipeline.py for the
+# same issue with transformers), this stub makes that import resolve
 # instantly instead of hanging — umap/__init__.py already falls back to a
 # dummy ParametricUMAP class when tensorflow isn't usable, we just need the
 # import itself to not hang.
-sys.modules.setdefault("tensorflow", types.ModuleType("tensorflow"))
+if "tensorflow" not in sys.modules:
+    tf_stub = types.ModuleType("tensorflow")
+    # Create a proper spec so torch's dynamic import doesn't fail
+    spec = importlib.util.spec_from_loader("tensorflow", loader=None)
+    tf_stub.__spec__ = spec
+    sys.modules["tensorflow"] = tf_stub
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -42,7 +55,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import umap
 from sklearn.manifold import TSNE
 
+import embedding_pipeline
+
 DEFAULT_DATA_PATH = Path(__file__).parent / "data" / "flores_embeddings.json"
+DEFAULT_LANGUAGES = "eng_Latn,deu_Latn,fra_Latn,spa_Latn,zho_Hans"
+DEFAULT_N_SENTENCES = 200
+DEFAULT_MODEL = "xlm-roberta-base"
 
 app = FastAPI()
 app.add_middleware(
@@ -52,7 +70,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATASET: dict = {"data": None}
+DATASET: dict = {"data": None, "generation": 0}
+_REDUCER_CACHE: dict = {"generation": -1, "reducer": None}
 
 
 def validate_and_normalize(raw: dict) -> dict:
@@ -74,6 +93,19 @@ def validate_and_normalize(raw: dict) -> dict:
                 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vec)):
             raise ValueError(f'points[{i}].vector must be an array of {dim} finite numbers')
 
+        tvecs = p.get("tokenVectors")
+        if tvecs is not None:
+            if not isinstance(tvecs, list) or len(tvecs) == 0:
+                raise ValueError(f'points[{i}].tokenVectors must be a non-empty array')
+            for j, t in enumerate(tvecs):
+                tvec = t.get("vector") if isinstance(t, dict) else None
+                if (not isinstance(t, dict) or not isinstance(t.get("token"), str)
+                        or not isinstance(tvec, list) or len(tvec) != dim
+                        or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in tvec)):
+                    raise ValueError(
+                        f'points[{i}].tokenVectors[{j}] must be {{"token": str, "vector": array of {dim} finite numbers}}'
+                    )
+
     return {
         "model": raw.get("model") or "unknown model",
         "layer": raw.get("layer") or "unknown",
@@ -83,14 +115,51 @@ def validate_and_normalize(raw: dict) -> dict:
     }
 
 
+def _pipeline_config() -> dict:
+    langs = os.environ.get("PROJECTION_LANGUAGES", DEFAULT_LANGUAGES)
+    return {
+        "lang_codes": [c.strip() for c in langs.split(",") if c.strip()],
+        "n_sentences": int(os.environ.get("PROJECTION_N_SENTENCES", DEFAULT_N_SENTENCES)),
+        "model": os.environ.get("PROJECTION_MODEL", DEFAULT_MODEL),
+    }
+
+
+def _cache_matches(cached: dict, config: dict) -> bool:
+    if cached.get("model") != config["model"]:
+        return False
+    if sorted(cached.get("lang_codes") or []) != sorted(config["lang_codes"]):
+        return False
+    points = cached.get("points", [])
+    if not points or points[0].get("tokenVectors") is None:
+        return False
+    counts = Counter(p["lang"] for p in points)
+    return all(counts.get(code) == config["n_sentences"] for code in config["lang_codes"])
+
+
+def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) -> dict:
+    """builder(lang_codes, n_sentences, model_name) -> dataset dict, same shape as the cache file."""
+    if cache_path.exists():
+        cached = json.loads(cache_path.read_text())
+        if _cache_matches(cached, config):
+            return cached
+
+    built = builder(config["lang_codes"], config["n_sentences"], config["model"])
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(built))
+    return built
+
+
 @app.on_event("startup")
 def load_default_dataset() -> None:
-    if not DEFAULT_DATA_PATH.exists():
-        print(f"No default dataset at {DEFAULT_DATA_PATH} — POST /dataset to load one.")
+    config = _pipeline_config()
+    print(f"Preparing default dataset: {config}")
+    try:
+        raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
+    except Exception as e:
+        print(f"Could not prepare default dataset ({e}) — POST /dataset to load one.")
         return
-    import json
-    raw = json.loads(DEFAULT_DATA_PATH.read_text())
     DATASET["data"] = validate_and_normalize(raw)
+    DATASET["generation"] += 1
     print(f"Loaded default dataset: {len(DATASET['data']['points'])} points")
 
 
@@ -106,6 +175,7 @@ async def set_dataset(raw: dict) -> dict:
         DATASET["data"] = validate_and_normalize(raw)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    DATASET["generation"] += 1
     d = DATASET["data"]
     return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
 
@@ -119,10 +189,33 @@ def get_points() -> dict:
         "dim": d["dim"],
         "lang_codes": d["lang_codes"],
         "points": [
-            {"id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text")}
+            {
+                "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
+                "hasTokens": p.get("tokenVectors") is not None,
+            }
             for p in d["points"]
         ],
     }
+
+
+def _fit_umap(vectors: np.ndarray) -> umap.UMAP:
+    n = len(vectors)
+    n_neighbors = max(1, min(15, n - 1))
+    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42)
+    reducer.fit(vectors)
+    return reducer
+
+
+def _get_umap_reducer(d: dict) -> umap.UMAP:
+    """Fits once per dataset "generation" and reuses the same reducer after
+    that — both so repeated /project?method=umap calls skip refitting, and
+    so /project/tokens/{id} can .transform() token vectors into the exact
+    same space the sentence points were fit into."""
+    if _REDUCER_CACHE["generation"] != DATASET["generation"]:
+        vectors = np.array([p["vector"] for p in d["points"]], dtype=np.float32)
+        _REDUCER_CACHE["reducer"] = _fit_umap(vectors)
+        _REDUCER_CACHE["generation"] = DATASET["generation"]
+    return _REDUCER_CACHE["reducer"]
 
 
 @app.get("/project")
@@ -133,18 +226,42 @@ def project(method: Literal["umap", "tsne"] = "umap") -> dict:
     if n < 2:
         raise HTTPException(status_code=400, detail="need at least 2 points to project")
 
-    vectors = np.array([p["vector"] for p in points], dtype=np.float32)
-
     if method == "umap":
-        n_neighbors = max(1, min(15, n - 1))
-        reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42)
+        reducer = _get_umap_reducer(d)
+        coords = reducer.embedding_
     else:
+        vectors = np.array([p["vector"] for p in points], dtype=np.float32)
         perplexity = max(1, min(30, n - 1))
         reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, init="pca")
-
-    coords = reducer.fit_transform(vectors)
+        coords = reducer.fit_transform(vectors)
 
     return {
         "method": method,
         "points": [{"id": p["id"], "x": float(coords[i][0]), "y": float(coords[i][1])} for i, p in enumerate(points)],
+    }
+
+
+@app.get("/project/tokens/{point_id}")
+def project_tokens(point_id: str) -> dict:
+    d = _current_dataset()
+    point = next((p for p in d["points"] if str(p["id"]) == point_id), None)
+    if point is None:
+        raise HTTPException(status_code=404, detail=f"no point with id {point_id!r}")
+
+    token_vectors = point.get("tokenVectors")
+    if not token_vectors:
+        raise HTTPException(status_code=400, detail=f"point {point_id!r} has no token vectors")
+    if len(token_vectors) < 2:
+        raise HTTPException(status_code=400, detail="need at least 2 tokens to project")
+
+    reducer = _get_umap_reducer(d)
+    vectors = np.array([t["vector"] for t in token_vectors], dtype=np.float32)
+    coords = reducer.transform(vectors)
+
+    return {
+        "id": point["id"],
+        "tokens": [
+            {"token": t["token"], "x": float(coords[i][0]), "y": float(coords[i][1])}
+            for i, t in enumerate(token_vectors)
+        ],
     }
