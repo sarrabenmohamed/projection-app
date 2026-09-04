@@ -49,10 +49,37 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 }
 #format-help code { background: #f0f0f0; padding: 0 3px; border-radius: 2px; }
 
-#detail-placeholder { color: #bbb; margin-top: 20px; text-align: center; font-size: 0.9em; }
-#detail-lang { font-size: 0.85em; font-weight: bold; display: none; margin-top: 20px; }
-
-#detail-tokens-toggle { display: none; margin-top: 12px; font-size: 0.78em; padding: 4px 10px; cursor: pointer; }
+#data-table {
+  width: 420px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #ddd;
+  background: #fff;
+  overflow: hidden;
+}
+#data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+#data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
+#data-table .dt-count { font-size: 0.75em; color: #888; white-space: nowrap; }
+#data-table .dt-scroll { flex: 1; overflow: auto; }
+#data-table table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+#data-table thead { position: sticky; top: 0; background: #f7f7f7; }
+#data-table th { text-align: left; padding: 5px 8px; border-bottom: 2px solid #ddd; cursor: pointer; white-space: nowrap; }
+#data-table th:hover { background: #eee; }
+#data-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+#data-table td.dt-text { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#data-table tr.dt-row { cursor: pointer; }
+#data-table tr.dt-row:hover td { background: #f8f8f8; }
+#data-table tr.dt-row-selected td { background: #e8f0fe; }
+#data-table tr.dt-row-token td { color: #666; }
+#data-table tr.dt-row-token td.dt-text { padding-left: 20px; }
+#data-table .dt-type { font-size: 0.9em; padding: 1px 6px; border-radius: 8px; }
+#data-table .dt-type-sentence { background: #e6f4ea; color: #137333; }
+#data-table .dt-type-token { background: #fce8e6; color: #c5221f; }
+#data-table .dt-actions-cell { white-space: nowrap; }
+#data-table .dt-action-btn { font-size: 0.85em; padding: 2px 6px; margin-right: 4px; cursor: pointer; }
+#data-table .dt-foot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px; border-top: 1px solid #ddd; font-size: 0.78em; color: #666; flex-shrink: 0; }
+#data-table .dt-foot button { cursor: pointer; }
 
 #main { flex: 1; position: relative; }
 #projection { width: 100%; height: 100%; }
