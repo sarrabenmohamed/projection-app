@@ -12,11 +12,15 @@ TODO: modularize and separate -> services layer? CRUD?
 TODO: check edge cases, consider pagination...
 
 Endpoints:
-    POST /dataset            body = same JSON shape the frontend's file
-                              picker validates client-side; stores it as the
-                              current dataset.
-    GET  /points             metadata only (no vectors) for rendering.
-    GET  /project?method=... 2D coordinates, computed on the stored vectors.
+    POST /dataset                body = same JSON shape the frontend's file
+                                  picker validates client-side; stores it as
+                                  the current dataset.
+    GET  /points                 metadata only (no vectors) for rendering.
+    GET  /project?method=...     2D coordinates, computed on the stored
+                                  sentence vectors.
+    GET  /project/tokens/{id}    2D coordinates for one point's token
+                                  vectors, embedded into the same UMAP space
+                                  as /project?method=umap via .transform().
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ app.add_middleware(
 )
 
 DATASET: dict = {"data": None, "generation": 0}
+_REDUCER_CACHE: dict = {"generation": -1, "reducer": None}
 
 
 def validate_and_normalize(raw: dict) -> dict:
@@ -186,6 +191,26 @@ def get_points() -> dict:
     }
 
 
+def _fit_umap(vectors: np.ndarray) -> umap.UMAP:
+    n = len(vectors)
+    n_neighbors = max(1, min(15, n - 1))
+    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42)
+    reducer.fit(vectors)
+    return reducer
+
+
+def _get_umap_reducer(d: dict) -> umap.UMAP:
+    """Fits once per dataset "generation" and reuses the same reducer after
+    that — both so repeated /project?method=umap calls skip refitting, and
+    so /project/tokens/{id} can .transform() token vectors into the exact
+    same space the sentence points were fit into."""
+    if _REDUCER_CACHE["generation"] != DATASET["generation"]:
+        vectors = np.array([p["vector"] for p in d["points"]], dtype=np.float32)
+        _REDUCER_CACHE["reducer"] = _fit_umap(vectors)
+        _REDUCER_CACHE["generation"] = DATASET["generation"]
+    return _REDUCER_CACHE["reducer"]
+
+
 @app.get("/project")
 def project(method: Literal["umap", "tsne"] = "umap") -> dict:
     d = _current_dataset()
@@ -194,18 +219,42 @@ def project(method: Literal["umap", "tsne"] = "umap") -> dict:
     if n < 2:
         raise HTTPException(status_code=400, detail="need at least 2 points to project")
 
-    vectors = np.array([p["vector"] for p in points], dtype=np.float32)
-
     if method == "umap":
-        n_neighbors = max(1, min(15, n - 1))
-        reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42)
+        reducer = _get_umap_reducer(d)
+        coords = reducer.embedding_
     else:
+        vectors = np.array([p["vector"] for p in points], dtype=np.float32)
         perplexity = max(1, min(30, n - 1))
         reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, init="pca")
-
-    coords = reducer.fit_transform(vectors)
+        coords = reducer.fit_transform(vectors)
 
     return {
         "method": method,
         "points": [{"id": p["id"], "x": float(coords[i][0]), "y": float(coords[i][1])} for i, p in enumerate(points)],
+    }
+
+
+@app.get("/project/tokens/{point_id}")
+def project_tokens(point_id: str) -> dict:
+    d = _current_dataset()
+    point = next((p for p in d["points"] if str(p["id"]) == point_id), None)
+    if point is None:
+        raise HTTPException(status_code=404, detail=f"no point with id {point_id!r}")
+
+    token_vectors = point.get("tokenVectors")
+    if not token_vectors:
+        raise HTTPException(status_code=400, detail=f"point {point_id!r} has no token vectors")
+    if len(token_vectors) < 2:
+        raise HTTPException(status_code=400, detail="need at least 2 tokens to project")
+
+    reducer = _get_umap_reducer(d)
+    vectors = np.array([t["vector"] for t in token_vectors], dtype=np.float32)
+    coords = reducer.transform(vectors)
+
+    return {
+        "id": point["id"],
+        "tokens": [
+            {"token": t["token"], "x": float(coords[i][0]), "y": float(coords[i][1])}
+            for i, t in enumerate(token_vectors)
+        ],
     }

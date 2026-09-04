@@ -21,6 +21,10 @@ SAMPLE_DATASET = {
                 {"token": "!", "vector": [0.5, 0.5, 0.5]},
             ],
         },
+        {"id": "en-2", "lang": "en", "pairId": 2, "text": "thanks", "vector": [0.2, 0.3, 0.4]},
+        {"id": "de-2", "lang": "de", "pairId": 2, "text": "danke", "vector": [0.25, 0.35, 0.45]},
+        {"id": "en-3", "lang": "en", "pairId": 3, "text": "please", "vector": [0.3, 0.4, 0.5]},
+        {"id": "de-3", "lang": "de", "pairId": 3, "text": "bitte", "vector": [0.35, 0.45, 0.55]},
     ],
 }
 
@@ -28,6 +32,7 @@ SAMPLE_DATASET = {
 @pytest.fixture
 def client():
     server.DATASET["data"] = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
+    server.DATASET["generation"] += 1
     return TestClient(server.app)
 
 
@@ -115,3 +120,41 @@ def test_load_or_build_dataset_rebuilds_on_cache_miss(tmp_path):
     result = server._load_or_build_dataset(cache_path, config, fake_builder)
     assert result == built
     assert json.loads(cache_path.read_text()) == built
+
+
+def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
+    fit_calls = []
+    orig_fit = server.umap.UMAP.fit
+
+    def spy_fit(self, X, *a, **kw):
+        fit_calls.append(1)
+        return orig_fit(self, X, *a, **kw)
+
+    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+
+    client.get("/project?method=umap")
+    client.get("/project?method=umap")
+    assert len(fit_calls) == 1  # second call reuses the cached reducer
+
+    client.post("/dataset", json=copy.deepcopy(SAMPLE_DATASET))
+    client.get("/project?method=umap")
+    assert len(fit_calls) == 2  # dataset change invalidates the cache
+
+
+def test_project_tokens_success(client):
+    res = client.get("/project/tokens/en-1")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == "en-1"
+    assert {t["token"] for t in body["tokens"]} == {"bye", "!"}
+    assert all(isinstance(t["x"], float) and isinstance(t["y"], float) for t in body["tokens"])
+
+
+def test_project_tokens_404_for_unknown_id(client):
+    res = client.get("/project/tokens/does-not-exist")
+    assert res.status_code == 404
+
+
+def test_project_tokens_400_when_point_has_no_token_vectors(client):
+    res = client.get("/project/tokens/en-0")
+    assert res.status_code == 400

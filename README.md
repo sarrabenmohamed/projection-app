@@ -97,7 +97,9 @@ client-js/
   lang-filter.js                    # searchable multi-select language filter
   backend-client.js                 # fetch wrapper for server.py's endpoints
   detail-panel.js                   # sidebar detail-on-click panel
-server.py                           # FastAPI backend: /points, /project, /dataset
-scripts/prepare_flores_embeddings.py  # FLORES-200 + XLM-R embedding prep pipeline
+server.py                           # FastAPI backend: /points, /project, /project/tokens/{id}, /dataset
+embedding_pipeline.py                # FLORES-200 + XLM-R embedding pipeline (sentence + token vectors)
+tests/                               # pytest suite for embedding_pipeline.py and server.py
 requirements.txt
+requirements-dev.txt                # adds pytest, for running tests/
 ```
