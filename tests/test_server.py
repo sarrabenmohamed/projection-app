@@ -78,9 +78,21 @@ def test_pipeline_config_reads_env_vars(monkeypatch):
 
 
 def test_cache_matches_true_when_config_matches():
-    cached = {"model": "m", "lang_codes": ["a", "b"], "points": [{"lang": "a"}, {"lang": "a"}, {"lang": "b"}, {"lang": "b"}]}
+    cached = {
+        "model": "m", "lang_codes": ["a", "b"],
+        "points": [
+            {"lang": "a", "tokenVectors": []}, {"lang": "a", "tokenVectors": []},
+            {"lang": "b", "tokenVectors": []}, {"lang": "b", "tokenVectors": []},
+        ],
+    }
     config = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 2}
     assert server._cache_matches(cached, config) is True
+
+
+def test_cache_matches_false_when_points_missing_token_vectors():
+    cached = {"model": "m", "lang_codes": ["a", "b"], "points": [{"lang": "a"}, {"lang": "a"}, {"lang": "b"}, {"lang": "b"}]}
+    config = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 2}
+    assert server._cache_matches(cached, config) is False
 
 
 def test_cache_matches_false_on_model_mismatch():
@@ -97,7 +109,10 @@ def test_cache_matches_false_on_sentence_count_mismatch():
 
 def test_load_or_build_dataset_uses_cache_on_hit(tmp_path):
     cache_path = tmp_path / "cache.json"
-    cached = {"model": "m", "lang_codes": ["a"], "points": [{"lang": "a", "id": "a-0", "vector": [0.0]}]}
+    cached = {
+        "model": "m", "lang_codes": ["a"],
+        "points": [{"lang": "a", "id": "a-0", "vector": [0.0], "tokenVectors": []}],
+    }
     cache_path.write_text(json.dumps(cached))
     config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1}
 
@@ -120,6 +135,26 @@ def test_load_or_build_dataset_rebuilds_on_cache_miss(tmp_path):
     result = server._load_or_build_dataset(cache_path, config, fake_builder)
     assert result == built
     assert json.loads(cache_path.read_text()) == built
+
+
+def test_load_default_dataset_degrades_gracefully_when_build_fails(tmp_path, monkeypatch):
+    def fake_build_dataset(*args, **kwargs):
+        raise RuntimeError("no HuggingFace auth/network available")
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
+    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "does-not-exist.json")
+
+    saved_dataset = copy.deepcopy(server.DATASET)
+    try:
+        server.DATASET["data"] = None
+        server.DATASET["generation"] = 0
+
+        server.load_default_dataset()  # must not raise
+
+        assert server.DATASET["data"] is None
+    finally:
+        server.DATASET["data"] = saved_dataset["data"]
+        server.DATASET["generation"] = saved_dataset["generation"]
 
 
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
