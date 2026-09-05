@@ -106,12 +106,16 @@ export class DataTable {
   // inline actions, and pages to wherever it currently sits in the
   // filtered/sorted list. Used both for table row clicks and for canvas
   // point clicks (which always select a sentence — token overlay points
-  // aren't clickable on canvas).
+  // aren't clickable on canvas). A page holds up to PAGE_SIZE rows in a
+  // fixed-height scroll strip, so paging alone doesn't guarantee the row
+  // is in view — scroll it into view too, same as a canvas click "jumping"
+  // to the row a user couldn't otherwise see.
   selectRow(id) {
     this._selectedId = id;
     this._selectedSentenceId = id;
     this._pageToRow(id);
     this._render();
+    this._scrollToSelected();
   }
 
   // Highlights a row without touching which sentence's actions are shown
@@ -132,12 +136,22 @@ export class DataTable {
     this._translationsGroupKey = groupKey;
     this._pageToRow(this._selectedSentenceId);
     this._render();
+    this._scrollToSelected();
   }
 
   hideTranslations() {
     this._translationsGroupKey = null;
     this._pageToRow(this._selectedSentenceId);
     this._render();
+    this._scrollToSelected();
+  }
+
+  // Scrolls the currently-selected row into view within the table's
+  // scroll strip, without jumping the page's own scroll position (only
+  // the table's internal .dt-scroll container moves).
+  _scrollToSelected() {
+    const row = this.tbody.querySelector('tr.dt-row-selected');
+    if (row) row.scrollIntoView({ block: 'nearest' });
   }
 
   showTokensFor(pointId, tokenRows) {
