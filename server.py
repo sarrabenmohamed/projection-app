@@ -1,28 +1,13 @@
 """
-Projection backend for projection-app/.
-
-Holds one dataset in memory (points with id/lang/pairId/text/vector) and
-serves 2D projections of it on demand, computed server-side with umap-learn
-or scikit-learn's TSNE. Run alongside the static frontend:
-
-    uvicorn server:app --port 8500
-
-TODO: dockerize
-TODO: modularize and separate -> services layer? CRUD?
-TODO: check edge cases, consider pagination...
+FastAPI backend for projection-app: holds one embeddings dataset in memory
+and serves 2D UMAP/t-SNE projections of it on demand. Run alongside the
+static frontend: uvicorn server:app --port 8500
 
 Endpoints:
-    POST /dataset                body = same JSON shape the frontend's file
-                                  picker validates client-side; stores it as
-                                  the current dataset.
-    GET  /points                 metadata only (no vectors) for rendering.
-    GET  /project?method=...&metric=...  2D coordinates, computed from the
-                                  stored sentence vectors (metric: cosine,
-                                  euclidean, or manhattan).
-    GET  /project/tokens/{id}?metric=...  2D coordinates for one point's
-                                  token vectors, embedded into the same UMAP
-                                  space as /project?method=umap via
-                                  .transform() (must match that call's metric).
+    POST /dataset                 load a dataset (JSON shape the frontend validates).
+    GET  /points                  point metadata only, no vectors.
+    GET  /project                 2D coords for all points (?method=umap|tsne&metric=cosine|euclidean|manhattan).
+    GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric= must match).
 """
 
 from __future__ import annotations
