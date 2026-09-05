@@ -44,6 +44,18 @@
         <option value="umap">UMAP</option>
         <option value="tsne">t-SNE</option>
       </select>
+      <label for="metric-select">Distance metric:</label>
+      <select id="metric-select">
+        <option value="euclidean">euclidean</option>
+        <option value="cosine">cosine</option>
+        <option value="manhattan">manhattan</option>
+      </select>
+      <label for="label-select">Label on hover:</label>
+      <select id="label-select">
+        <option value="text">Text</option>
+        <option value="id">ID</option>
+        <option value="lang">Language</option>
+      </select>
     </div>
     <div id="status">Loading...</div>
 
@@ -55,12 +67,11 @@
     </div>
   </div>
 
-  <div id="data-table"></div>
-
   <div id="main">
     <div id="projection">
       <div id="projection-hint">Loading embeddings and running UMAP...</div>
     </div>
+    <div id="data-table"></div>
   </div>
 </div>
 

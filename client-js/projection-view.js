@@ -46,6 +46,7 @@ export class ProjectionView {
 
     this.quadtree = null;
     this._hoveredId = null;
+    this._labelBy = 'text';
 
     this.canvas.addEventListener('click', event => this._onCanvasClick(event));
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
@@ -75,6 +76,7 @@ export class ProjectionView {
   clearTokenOverlay() { this.pointLayer.clearTokenOverlay(); }
   setSelectedId(id) { this.pointLayer.setSelectedId(id); }
   clearSelectedId() { this.pointLayer.clearSelectedId(); }
+  setLabelBy(field) { this._labelBy = field; }
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);
@@ -133,7 +135,7 @@ export class ProjectionView {
     const overlayHit = this._overlayPointAt(event);
     if (overlayHit) {
       const rect = this.el.getBoundingClientRect();
-      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, overlayHit.text);
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(overlayHit[this._labelBy]));
       this.canvas.style.cursor = 'default';
       if (this._hoveredId !== null) {
         this._hoveredId = null;
@@ -150,7 +152,7 @@ export class ProjectionView {
     }
     if (d) {
       const rect = this.el.getBoundingClientRect();
-      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, `${d.lang}: ${d.text}`);
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
       this.canvas.style.cursor = 'pointer';
     } else {
       this._hideTooltip();

@@ -184,6 +184,30 @@ def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
     assert len(fit_calls) == 2  # dataset change invalidates the cache
 
 
+def test_project_umap_refits_when_metric_changes(client, monkeypatch):
+    fit_calls = []
+    orig_fit = server.umap.UMAP.fit
+
+    def spy_fit(self, X, *a, **kw):
+        fit_calls.append(1)
+        return orig_fit(self, X, *a, **kw)
+
+    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+
+    client.get("/project?method=umap&metric=euclidean")
+    client.get("/project?method=umap&metric=euclidean")
+    assert len(fit_calls) == 1  # same metric reuses the cached reducer
+
+    client.get("/project?method=umap&metric=cosine")
+    assert len(fit_calls) == 2  # metric change invalidates the cache
+
+
+def test_project_tsne_accepts_metric(client):
+    res = client.get("/project?method=tsne&metric=cosine")
+    assert res.status_code == 200
+    assert len(res.json()["points"]) == len(SAMPLE_DATASET["points"])
+
+
 def test_project_tokens_success(client):
     res = client.get("/project/tokens/en-1")
     assert res.status_code == 200

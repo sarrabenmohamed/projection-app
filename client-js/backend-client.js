@@ -11,12 +11,12 @@ export class BackendClient {
     return this._request('/points');
   }
 
-  fetchProjection(method) {
-    return this._request(`/project?method=${method}`);
+  fetchProjection(method, metric) {
+    return this._request(`/project?method=${method}&metric=${metric}`);
   }
 
-  fetchTokenProjection(id) {
-    return this._request(`/project/tokens/${encodeURIComponent(id)}`);
+  fetchTokenProjection(id, metric) {
+    return this._request(`/project/tokens/${encodeURIComponent(id)}?metric=${metric}`);
   }
 
   postDataset(raw) {

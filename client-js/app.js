@@ -40,6 +40,10 @@ class App {
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
     document.getElementById('method-select')
       .addEventListener('change', () => this._refresh());
+    document.getElementById('metric-select')
+      .addEventListener('change', () => this._refresh());
+    document.getElementById('label-select')
+      .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
 
@@ -77,13 +81,14 @@ class App {
 
   async _refresh() {
     const method = document.getElementById('method-select').value;
-    document.getElementById('status').textContent = `Running ${method}...`;
+    const metric = document.getElementById('metric-select').value;
+    document.getElementById('status').textContent = `Running ${method} (${metric})...`;
 
     let meta, proj;
     try {
       [meta, proj] = await Promise.all([
         this.backend.fetchPoints(),
-        this.backend.fetchProjection(method),
+        this.backend.fetchProjection(method, metric),
       ]);
     } catch (err) {
       document.getElementById('status').textContent = err.message;
@@ -202,9 +207,10 @@ class App {
       document.getElementById('status').textContent += ' · switched to UMAP to show tokens';
     }
 
+    const metric = document.getElementById('metric-select').value;
     let proj;
     try {
-      proj = await this.backend.fetchTokenProjection(point.id);
+      proj = await this.backend.fetchTokenProjection(point.id, metric);
     } catch (err) {
       document.getElementById('status').textContent = err.message;
       return;
