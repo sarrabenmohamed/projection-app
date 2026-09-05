@@ -42,6 +42,8 @@ class App {
       .addEventListener('change', () => this._refresh());
     document.getElementById('metric-select')
       .addEventListener('change', () => this._refresh());
+    document.getElementById('refit-button')
+      .addEventListener('click', () => this._refresh());
     document.getElementById('label-select')
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('format-help-toggle')
