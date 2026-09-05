@@ -1,19 +1,12 @@
 """
-FLORES-200 + XLM-R embedding pipeline for the projection backend.
+FLORES-200 + XLM-R embedding pipeline: for each requested language, embeds
+every sentence into a mean-pooled sentence vector (last hidden layer, padding
+masked out) plus a per-token vector for every non-special token. A sentence's
+row index is stable across languages and becomes its `pairId`, which the app
+uses to link translations together.
 
-For each requested language, loads the FLORES-200 devtest split and embeds
-every sentence with a HuggingFace encoder, producing:
-  - a mean-pooled sentence vector (the LAST hidden layer, averaged over
-    tokens, padding masked out)
-  - a per-token vector for every non-special token in that same last layer
-
-FLORES-200 is parallel by row index, so a sentence's row index is stable
-across languages and becomes its `pairId` in the output — the app uses that
-to find "this point's translations" on click.
-
-Requires a one-time HuggingFace login and accepting the FLORES-200 terms:
-    python3 -c "from huggingface_hub import login; login()"
-    https://huggingface.co/datasets/facebook/flores
+One-time setup: python3 -c "from huggingface_hub import login; login()"
+then accept terms at https://huggingface.co/datasets/facebook/flores
 """
 
 from __future__ import annotations
