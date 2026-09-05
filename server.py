@@ -16,11 +16,13 @@ Endpoints:
                                   picker validates client-side; stores it as
                                   the current dataset.
     GET  /points                 metadata only (no vectors) for rendering.
-    GET  /project?method=...     2D coordinates, computed on the stored
-                                  sentence vectors.
-    GET  /project/tokens/{id}    2D coordinates for one point's token
-                                  vectors, embedded into the same UMAP space
-                                  as /project?method=umap via .transform().
+    GET  /project?method=...&metric=...  2D coordinates, computed from the
+                                  stored sentence vectors (metric: cosine,
+                                  euclidean, or manhattan).
+    GET  /project/tokens/{id}?metric=...  2D coordinates for one point's
+                                  token vectors, embedded into the same UMAP
+                                  space as /project?method=umap via
+                                  .transform() (must match that call's metric).
 """
 
 from __future__ import annotations
@@ -78,7 +80,7 @@ app.add_middleware(
 )
 
 DATASET: dict = {"data": None, "generation": 0}
-_REDUCER_CACHE: dict = {"generation": -1, "reducer": None}
+_REDUCER_CACHE: dict = {"generation": -1, "metric": None, "reducer": None}
 
 
 def validate_and_normalize(raw: dict) -> dict:
@@ -206,28 +208,33 @@ def get_points() -> dict:
     }
 
 
-def _fit_umap(vectors: np.ndarray) -> umap.UMAP:
+def _fit_umap(vectors: np.ndarray, metric: str) -> umap.UMAP:
     n = len(vectors)
     n_neighbors = max(1, min(15, n - 1))
-    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42)
+    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42, metric=metric)
     reducer.fit(vectors)
     return reducer
 
 
-def _get_umap_reducer(d: dict) -> umap.UMAP:
-    """Fits once per dataset "generation" and reuses the same reducer after
-    that — both so repeated /project?method=umap calls skip refitting, and
-    so /project/tokens/{id} can .transform() token vectors into the exact
-    same space the sentence points were fit into."""
-    if _REDUCER_CACHE["generation"] != DATASET["generation"]:
+def _get_umap_reducer(d: dict, metric: str) -> umap.UMAP:
+    """Fits once per (dataset "generation", metric) and reuses the same
+    reducer after that — both so repeated /project?method=umap calls with
+    the same metric skip refitting, and so /project/tokens/{id} can
+    .transform() token vectors into the exact same space the sentence
+    points were fit into for that metric."""
+    if _REDUCER_CACHE["generation"] != DATASET["generation"] or _REDUCER_CACHE["metric"] != metric:
         vectors = np.array([p["vector"] for p in d["points"]], dtype=np.float32)
-        _REDUCER_CACHE["reducer"] = _fit_umap(vectors)
+        _REDUCER_CACHE["reducer"] = _fit_umap(vectors, metric)
         _REDUCER_CACHE["generation"] = DATASET["generation"]
+        _REDUCER_CACHE["metric"] = metric
     return _REDUCER_CACHE["reducer"]
 
 
 @app.get("/project")
-def project(method: Literal["umap", "tsne"] = "umap") -> dict:
+def project(
+    method: Literal["umap", "tsne"] = "umap",
+    metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean",
+) -> dict:
     d = _current_dataset()
     points = d["points"]
     n = len(points)
@@ -235,12 +242,12 @@ def project(method: Literal["umap", "tsne"] = "umap") -> dict:
         raise HTTPException(status_code=400, detail="need at least 2 points to project")
 
     if method == "umap":
-        reducer = _get_umap_reducer(d)
+        reducer = _get_umap_reducer(d, metric)
         coords = reducer.embedding_
     else:
         vectors = np.array([p["vector"] for p in points], dtype=np.float32)
         perplexity = max(1, min(30, n - 1))
-        reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, init="pca")
+        reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, init="pca", metric=metric)
         coords = reducer.fit_transform(vectors)
 
     return {
@@ -250,7 +257,7 @@ def project(method: Literal["umap", "tsne"] = "umap") -> dict:
 
 
 @app.get("/project/tokens/{point_id}")
-def project_tokens(point_id: str) -> dict:
+def project_tokens(point_id: str, metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean") -> dict:
     d = _current_dataset()
     point = next((p for p in d["points"] if str(p["id"]) == point_id), None)
     if point is None:
@@ -262,7 +269,7 @@ def project_tokens(point_id: str) -> dict:
     if len(token_vectors) < 2:
         raise HTTPException(status_code=400, detail="need at least 2 tokens to project")
 
-    reducer = _get_umap_reducer(d)
+    reducer = _get_umap_reducer(d, metric)
     vectors = np.array([t["vector"] for t in token_vectors], dtype=np.float32)
     coords = reducer.transform(vectors)
 
