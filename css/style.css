@@ -30,6 +30,7 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #load-controls label:first-child { margin-top: 0; }
 #load-controls input[type=file] { font-size: 0.78em; max-width: 100%; }
 #load-controls select { font-size: 0.8em; width: 100%; }
+#refit-button { font-size: 0.8em; width: 100%; margin-top: 6px; padding: 4px 0; cursor: pointer; }
 
 #format-help-toggle {
   display: inline-block; width: 16px; height: 16px; line-height: 14px;
