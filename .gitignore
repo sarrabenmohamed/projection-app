@@ -19,3 +19,6 @@ venv/
 
 # Local git worktrees
 .worktrees/
+
+# Design specs/plans — not source, keep them local for now
+docs/
