@@ -117,6 +117,10 @@ export class DataTable {
     return Number.isFinite(n) && n > 0 ? n : 5;
   }
 
+  setNeighborsK(k) {
+    this._neighborsKInput.value = k;
+  }
+
   // Selects a sentence row: highlights it, makes it the row that shows
   // inline actions, and pages to wherever it currently sits in the
   // filtered/sorted list. Used both for table row clicks and for canvas

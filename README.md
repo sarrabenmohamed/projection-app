@@ -32,10 +32,13 @@ cache instantly. Customize it via env vars: `PROJECTION_LANGUAGES`,
 ## Using it
 
 - **Select a point** (click on the plot or a data-table row) to highlight
-  it — the table row reveals **Show translations** / **Show tokens**.
+  it — the table row reveals **Show translations** / **Show tokens** /
+  **Show neighbors**.
 - **Show translations** isolates its parallel sentences on the plot;
   **Show tokens** overlays that sentence's token embeddings in the same
   UMAP space (auto-switches method to UMAP if needed).
+- **Show neighbors** lists the *k* nearest points by full-vector distance
+  (id, text, distance) — set *k* in the table header.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   **Refit** forces a manual re-run.
 - **Label on hover** — choose what the tooltip shows (text/ID/language).
@@ -43,6 +46,8 @@ cache instantly. Customize it via env vars: `PROJECTION_LANGUAGES`,
   neutral gray.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
   expected format.
+- **Copy link** — copies a URL with the current method/metric/label/selection
+  as query params; opening it restores that view.
 
 ## Troubleshooting
 
