@@ -8,6 +8,7 @@ Endpoints:
     GET  /points                  point metadata only, no vectors.
     GET  /project                 2D coords for all points (?method=umap|tsne&metric=cosine|euclidean|manhattan).
     GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric= must match).
+    GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
 """
 
 from __future__ import annotations
@@ -37,10 +38,11 @@ if "tensorflow" not in sys.modules:
     sys.modules["tensorflow"] = tf_stub
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import umap
 from sklearn.manifold import TSNE
+from sklearn.metrics import pairwise_distances
 
 import embedding_pipeline
 
@@ -244,6 +246,36 @@ def project(
     return {
         "method": method,
         "points": [{"id": p["id"], "x": float(coords[i][0]), "y": float(coords[i][1])} for i, p in enumerate(points)],
+    }
+
+
+@app.get("/neighbors/{point_id}")
+def neighbors(
+    point_id: str,
+    k: int = Query(default=5, ge=1, le=100),
+    metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean",
+) -> dict:
+    """Nearest neighbors by distance in the full embedding space (not the 2D
+    projection) — independent of whatever method/metric the plot is using."""
+    d = _current_dataset()
+    points = d["points"]
+    idx = next((i for i, p in enumerate(points) if str(p["id"]) == point_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"no point with id {point_id!r}")
+
+    vectors = np.array([p["vector"] for p in points], dtype=np.float32)
+    dists = pairwise_distances(vectors[idx:idx + 1], vectors, metric=metric)[0]
+    order = [i for i in np.argsort(dists) if i != idx][:k]
+
+    return {
+        "id": points[idx]["id"],
+        "neighbors": [
+            {
+                "id": points[i]["id"], "lang": points[i]["lang"], "text": points[i].get("text"),
+                "distance": float(dists[i]),
+            }
+            for i in order
+        ],
     }
 
 

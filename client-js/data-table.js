@@ -20,16 +20,19 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens }) {
+  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onToggleTranslations = onToggleTranslations;
     this._onToggleTokens = onToggleTokens;
+    this._onToggleNeighbors = onToggleNeighbors;
 
     this.points = [];
     this._tokenRows = [];
     this._tokensParentId = null;
     this._translationsGroupKey = null;
+    this._neighborRows = [];
+    this._neighborsParentId = null;
     this._selectedId = null;
     this._selectedSentenceId = null;
     this._search = '';
@@ -40,6 +43,7 @@ export class DataTable {
     this.container.innerHTML = `
       <div class="dt-top">
         <input type="text" class="dt-search" placeholder="Search language or text...">
+        <label class="dt-k-label">k: <input type="number" class="dt-neighbors-k" value="5" min="1" max="100"></label>
         <span class="dt-count"></span>
       </div>
       <div class="dt-scroll">
@@ -52,6 +56,7 @@ export class DataTable {
               <th data-key="pairId">PairId</th>
               <th>Type</th>
               <th>Token strings</th>
+              <th>Distance</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -66,6 +71,7 @@ export class DataTable {
     `;
 
     this._searchInput = this.container.querySelector('.dt-search');
+    this._neighborsKInput = this.container.querySelector('.dt-neighbors-k');
     this.tbody = this.container.querySelector('tbody');
     this._countEl = this.container.querySelector('.dt-count');
     this._pageEl = this.container.querySelector('.dt-page');
@@ -93,6 +99,8 @@ export class DataTable {
     this._tokenRows = [];
     this._tokensParentId = null;
     this._translationsGroupKey = null;
+    this._neighborRows = [];
+    this._neighborsParentId = null;
     this._selectedId = null;
     this._selectedSentenceId = null;
     this._search = '';
@@ -100,6 +108,13 @@ export class DataTable {
     this._sortKey = null;
     this._page = 0;
     this._render();
+  }
+
+  // Current value of the "k" input — read by App when it's about to fetch
+  // neighbors, so the count always reflects whatever the user last typed.
+  neighborsK() {
+    const n = parseInt(this._neighborsKInput.value, 10);
+    return Number.isFinite(n) && n > 0 ? n : 5;
   }
 
   // Selects a sentence row: highlights it, makes it the row that shows
@@ -167,6 +182,19 @@ export class DataTable {
     this._render();
   }
 
+  showNeighborsFor(pointId, neighborRows) {
+    this._neighborsParentId = pointId;
+    this._neighborRows = neighborRows;
+    this._render();
+  }
+
+  hideNeighborsFor(pointId) {
+    if (this._neighborsParentId !== pointId) return;
+    this._neighborsParentId = null;
+    this._neighborRows = [];
+    this._render();
+  }
+
   _pageToRow(id) {
     if (id === null) return;
     const rows = this._visibleRows();
@@ -217,6 +245,9 @@ export class DataTable {
       if (this._tokensParentId === p.id) {
         this._tokenRows.forEach(t => this.tbody.appendChild(this._renderTokenRow(t)));
       }
+      if (this._neighborsParentId === p.id) {
+        this._neighborRows.forEach(n => this.tbody.appendChild(this._renderNeighborRow(n)));
+      }
     });
   }
 
@@ -227,6 +258,7 @@ export class DataTable {
     tr.className = 'dt-row' + (highlighted ? ' dt-row-selected' : '');
     const translationsOn = hasActions && this._translationsGroupKey === p.groupKey;
     const tokensOn = hasActions && this._tokensParentId === p.id;
+    const neighborsOn = hasActions && this._neighborsParentId === p.id;
 
     tr.innerHTML = `
       <td>${escapeHtml(String(p.id))}</td>
@@ -235,6 +267,7 @@ export class DataTable {
       <td>${escapeHtml(String(p.pairId ?? ''))}</td>
       <td><span class="dt-type dt-type-sentence">sentence</span></td>
       <td class="dt-text">${p.hasTokens ? escapeHtml(p.tokenTexts.join(', ')) : ''}</td>
+      <td></td>
       <td class="dt-actions-cell"></td>
     `;
 
@@ -255,6 +288,13 @@ export class DataTable {
         tokBtn.addEventListener('click', e => { e.stopPropagation(); this._onToggleTokens(p); });
         actionsCell.appendChild(tokBtn);
       }
+
+      const neighBtn = document.createElement('button');
+      neighBtn.type = 'button';
+      neighBtn.className = 'dt-action-btn';
+      neighBtn.textContent = neighborsOn ? 'Hide neighbors' : 'Show neighbors';
+      neighBtn.addEventListener('click', e => { e.stopPropagation(); this._onToggleNeighbors(p); });
+      actionsCell.appendChild(neighBtn);
     }
 
     tr.addEventListener('click', () => this._onRowClick({ ...p, type: 'sentence' }));
@@ -273,8 +313,26 @@ export class DataTable {
       <td><span class="dt-type dt-type-token">token</span></td>
       <td></td>
       <td></td>
+      <td></td>
     `;
     tr.addEventListener('click', () => this._onRowClick({ ...t, type: 'token' }));
+    return tr;
+  }
+
+  _renderNeighborRow(n) {
+    const tr = document.createElement('tr');
+    tr.className = 'dt-row dt-row-neighbor';
+    tr.innerHTML = `
+      <td>${escapeHtml(String(n.id))}</td>
+      <td>${escapeHtml(n.lang)}</td>
+      <td class="dt-text" title="${escapeHtml(n.text ?? '')}">${escapeHtml(n.text ?? '')}</td>
+      <td></td>
+      <td><span class="dt-type dt-type-neighbor">neighbor</span></td>
+      <td></td>
+      <td>${n.distance.toFixed(4)}</td>
+      <td></td>
+    `;
+    tr.addEventListener('click', () => this._onRowClick({ ...n, type: 'neighbor' }));
     return tr;
   }
 }

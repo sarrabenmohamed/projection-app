@@ -20,6 +20,7 @@ class App {
         onRowClick: row => this.onSelectRow(row),
         onToggleTranslations: point => this.onToggleTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
+        onToggleNeighbors: point => this.onToggleNeighbors(point),
       }
     );
     this.langFilter = new LangFilter(
@@ -30,6 +31,7 @@ class App {
     this._selectedPoint = null;
     this._translationsShown = false;
     this._tokenOverlayPointId = null;
+    this._neighborsPointId = null;
   }
 
   init() {
@@ -189,6 +191,7 @@ class App {
     this._selectedPoint = null;
     this._translationsShown = false;
     this._tokenOverlayPointId = null;
+    this._neighborsPointId = null;
     this.view.clearHighlight();
     this.view.clearSelectedId();
     this.view.clearTokenOverlay();
@@ -224,6 +227,14 @@ class App {
       this.table.highlightRow(row.id);
       return;
     }
+    if (row.type === 'neighbor') {
+      // Neighbor rows carry only {id, lang, text, distance} — jump to the
+      // full point object so selection state (groupKey, hasTokens, ...)
+      // stays consistent with canvas/table-driven selection.
+      const full = this.points.find(p => p.id === row.id);
+      if (full) this._selectSentence(full);
+      return;
+    }
     this._selectSentence(row);
   }
 
@@ -253,6 +264,7 @@ class App {
       this._translationsShown = false;
     }
     this._clearTokenOverlay();
+    this._clearNeighbors();
   }
 
   onToggleTranslations(point) {
@@ -320,6 +332,38 @@ class App {
     this.table.hideTokensFor(this._tokenOverlayPointId);
     this._tokenOverlayPointId = null;
     this.view.clearTokenOverlay();
+  }
+
+  // Nearest neighbors are computed on the full embedding vectors (see
+  // server.py's /neighbors), independent of projection method/metric, so
+  // unlike tokens this never needs to force a UMAP switch.
+  async onToggleNeighbors(point) {
+    if (this._neighborsPointId === point.id) {
+      this._clearNeighbors();
+      return;
+    }
+
+    const metric = document.getElementById('metric-select').value;
+    const k = this.table.neighborsK();
+    this._setLoading(true, 'Finding nearest neighbors...');
+    let res;
+    try {
+      res = await this.backend.fetchNeighbors(point.id, k, metric);
+    } catch (err) {
+      this._setLoading(false);
+      document.getElementById('status').textContent = err.message;
+      return;
+    }
+    this._setLoading(false);
+
+    this._neighborsPointId = point.id;
+    this.table.showNeighborsFor(point.id, res.neighbors);
+  }
+
+  _clearNeighbors() {
+    if (this._neighborsPointId === null) return;
+    this.table.hideNeighborsFor(this._neighborsPointId);
+    this._neighborsPointId = null;
   }
 }
 
