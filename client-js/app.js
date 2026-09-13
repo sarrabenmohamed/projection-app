@@ -57,6 +57,14 @@ class App {
     el.style.display = el.style.display === 'block' ? 'none' : 'block';
   }
 
+  // Shows/hides the full-screen loading overlay used around every backend
+  // call — a visible spinner instead of just the (still-updated) status
+  // text, since a UMAP/t-SNE refit or a token projection can take a while.
+  _setLoading(isLoading, message) {
+    document.getElementById('loading-overlay').classList.toggle('visible', isLoading);
+    if (isLoading) document.getElementById('loading-text').textContent = message;
+  }
+
   _onFileSelected(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -69,12 +77,15 @@ class App {
         return;
       }
 
+      this._setLoading(true, 'Uploading dataset...');
       try {
         await this.backend.postDataset(raw);
       } catch (err) {
+        this._setLoading(false);
         document.getElementById('status').textContent = `Invalid file: ${err.message}`;
         return;
       }
+      this._setLoading(false);
 
       this._refresh();
     };
@@ -85,6 +96,7 @@ class App {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
     document.getElementById('status').textContent = `Running ${method} (${metric})...`;
+    this._setLoading(true, `Running ${method} (${metric})...`);
 
     let meta, proj;
     try {
@@ -93,10 +105,12 @@ class App {
         this.backend.fetchProjection(method, metric),
       ]);
     } catch (err) {
+      this._setLoading(false);
       document.getElementById('status').textContent = err.message;
       return;
     }
 
+    this._setLoading(false);
     this._loadDataset(meta, proj);
   }
 
@@ -210,13 +224,16 @@ class App {
     }
 
     const metric = document.getElementById('metric-select').value;
+    this._setLoading(true, 'Computing token projection...');
     let proj;
     try {
       proj = await this.backend.fetchTokenProjection(point.id, metric);
     } catch (err) {
+      this._setLoading(false);
       document.getElementById('status').textContent = err.message;
       return;
     }
+    this._setLoading(false);
 
     this._tokenOverlayPointId = point.id;
     const tokenPoints = proj.tokens.map((t, i) => ({
