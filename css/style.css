@@ -88,6 +88,8 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
+#data-table .dt-k-label { font-size: 0.75em; color: #555; white-space: nowrap; }
+#data-table .dt-neighbors-k { width: 44px; font-size: 0.95em; padding: 1px 4px; }
 #data-table .dt-count { font-size: 0.75em; color: #888; white-space: nowrap; }
 #data-table .dt-scroll { flex: 1; overflow: auto; }
 #data-table table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
@@ -101,9 +103,12 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table tr.dt-row-selected td { background: #e8f0fe; }
 #data-table tr.dt-row-token td { color: #666; }
 #data-table tr.dt-row-token td.dt-text { padding-left: 20px; }
+#data-table tr.dt-row-neighbor td { color: #666; }
+#data-table tr.dt-row-neighbor td.dt-text { padding-left: 20px; }
 #data-table .dt-type { font-size: 0.9em; padding: 1px 6px; border-radius: 8px; }
 #data-table .dt-type-sentence { background: #e6f4ea; color: #137333; }
 #data-table .dt-type-token { background: #fce8e6; color: #c5221f; }
+#data-table .dt-type-neighbor { background: #e8f0fe; color: #1a73e8; }
 #data-table .dt-actions-cell { white-space: nowrap; }
 #data-table .dt-action-btn { font-size: 0.85em; padding: 2px 6px; margin-right: 4px; cursor: pointer; }
 #data-table .dt-foot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px; border-top: 1px solid #ddd; font-size: 0.78em; color: #666; flex-shrink: 0; }

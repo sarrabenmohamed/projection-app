@@ -19,6 +19,10 @@ export class BackendClient {
     return this._request(`/project/tokens/${encodeURIComponent(id)}?metric=${metric}`);
   }
 
+  fetchNeighbors(id, k, metric) {
+    return this._request(`/neighbors/${encodeURIComponent(id)}?k=${k}&metric=${metric}`);
+  }
+
   postDataset(raw) {
     return this._request('/dataset', {
       method: 'POST',

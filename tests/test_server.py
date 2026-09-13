@@ -235,3 +235,28 @@ def test_project_tokens_404_for_unknown_id(client):
 def test_project_tokens_400_when_point_has_no_token_vectors(client):
     res = client.get("/project/tokens/en-0")
     assert res.status_code == 400
+
+
+def test_neighbors_excludes_self_and_respects_k(client):
+    res = client.get("/neighbors/en-0?k=2")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == "en-0"
+    assert len(body["neighbors"]) == 2
+    assert all(n["id"] != "en-0" for n in body["neighbors"])
+
+
+def test_neighbors_sorted_by_ascending_distance(client):
+    res = client.get("/neighbors/en-0?k=5")
+    dists = [n["distance"] for n in res.json()["neighbors"]]
+    assert dists == sorted(dists)
+
+
+def test_neighbors_404_for_unknown_id(client):
+    res = client.get("/neighbors/does-not-exist")
+    assert res.status_code == 404
+
+
+def test_neighbors_rejects_k_out_of_range(client):
+    assert client.get("/neighbors/en-0?k=0").status_code == 422
+    assert client.get("/neighbors/en-0?k=101").status_code == 422
