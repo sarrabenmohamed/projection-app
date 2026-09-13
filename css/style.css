@@ -113,3 +113,25 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
   font-size: 0.9em;
   pointer-events: none;
 }
+
+#loading-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255, 255, 255, 0.65);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+}
+#loading-overlay.visible { display: flex; }
+.loading-spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #ddd;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: loading-spin 0.8s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 0.85em; color: #444; }
