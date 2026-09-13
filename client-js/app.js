@@ -206,7 +206,7 @@ class App {
     });
 
     document.getElementById('status').textContent =
-      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer) · ${proj.method}`;
+      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}`;
 
     this.langFilter.setLangs(meta.lang_codes);
     this.table.setPoints(this.points);

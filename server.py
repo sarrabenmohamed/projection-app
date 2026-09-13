@@ -55,6 +55,7 @@ DEFAULT_LANGUAGES = (
 )
 DEFAULT_N_SENTENCES = 200
 DEFAULT_MODEL = "xlm-roberta-base"
+DEFAULT_POOLING = "mean"
 
 app = FastAPI()
 app.add_middleware(
@@ -103,6 +104,7 @@ def validate_and_normalize(raw: dict) -> dict:
     return {
         "model": raw.get("model") or "unknown model",
         "layer": raw.get("layer") or "unknown",
+        "pooling": raw.get("pooling") or "mean",
         "dim": dim,
         "lang_codes": raw.get("lang_codes") or sorted({p["lang"] for p in points}),
         "points": points,
@@ -115,11 +117,14 @@ def _pipeline_config() -> dict:
         "lang_codes": [c.strip() for c in langs.split(",") if c.strip()],
         "n_sentences": int(os.environ.get("PROJECTION_N_SENTENCES", DEFAULT_N_SENTENCES)),
         "model": os.environ.get("PROJECTION_MODEL", DEFAULT_MODEL),
+        "pooling": os.environ.get("PROJECTION_POOLING", DEFAULT_POOLING),
     }
 
 
 def _cache_matches(cached: dict, config: dict) -> bool:
     if cached.get("model") != config["model"]:
+        return False
+    if cached.get("pooling", "mean") != config["pooling"]:
         return False
     if sorted(cached.get("lang_codes") or []) != sorted(config["lang_codes"]):
         return False
@@ -131,13 +136,13 @@ def _cache_matches(cached: dict, config: dict) -> bool:
 
 
 def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) -> dict:
-    """builder(lang_codes, n_sentences, model_name) -> dataset dict, same shape as the cache file."""
+    """builder(lang_codes, n_sentences, model_name, pooling) -> dataset dict, same shape as the cache file."""
     if cache_path.exists():
         cached = json.loads(cache_path.read_text())
         if _cache_matches(cached, config):
             return cached
 
-    built = builder(config["lang_codes"], config["n_sentences"], config["model"])
+    built = builder(config["lang_codes"], config["n_sentences"], config["model"], config["pooling"])
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(built))
     return built
@@ -180,6 +185,7 @@ def get_points() -> dict:
     return {
         "model": d["model"],
         "layer": d["layer"],
+        "pooling": d.get("pooling", "mean"),
         "dim": d["dim"],
         "lang_codes": d["lang_codes"],
         "points": [

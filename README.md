@@ -26,7 +26,8 @@ python3 -m http.server 8000                 # frontend, separate terminal
 Open **http://localhost:8000**. First backend startup computes and caches
 the default 40-language dataset (a few minutes); later startups load the
 cache instantly. Customize it via env vars: `PROJECTION_LANGUAGES`,
-`PROJECTION_N_SENTENCES`, `PROJECTION_MODEL`.
+`PROJECTION_N_SENTENCES`, `PROJECTION_MODEL`, `PROJECTION_POOLING`
+(`mean` | `max` | `cls` — how token vectors combine into a sentence vector).
 
 ## Using it
 
