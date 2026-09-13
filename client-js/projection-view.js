@@ -24,18 +24,11 @@ export class ProjectionView {
     this.margin = { top: 10, right: 10, bottom: 30, left: 45 };
     this.el = document.getElementById(containerId);
     this.el.style.position = 'relative';
-    this.width  = this.el.clientWidth  - this.margin.left - this.margin.right;
-    this.height = this.el.clientHeight - this.margin.top  - this.margin.bottom;
 
-    const dpr = window.devicePixelRatio || 1;
     this.canvas = document.createElement('canvas');
-    this.canvas.width  = this.el.clientWidth  * dpr;
-    this.canvas.height = this.el.clientHeight * dpr;
-    this.canvas.style.width  = `${this.el.clientWidth}px`;
-    this.canvas.style.height = `${this.el.clientHeight}px`;
     this.el.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.scale(dpr, dpr);
+    this._applySize();
 
     this.pointLayer = new PointLayer(() => this._draw());
     this.axes = new ZoomableAxes(this.el, this.canvas, this.width, this.height, this.margin, () => {
@@ -77,6 +70,43 @@ export class ProjectionView {
   setSelectedId(id) { this.pointLayer.setSelectedId(id); }
   clearSelectedId() { this.pointLayer.clearSelectedId(); }
   setLabelBy(field) { this._labelBy = field; }
+
+  // Sets this.width/height (plot area, margin excluded) and the canvas's
+  // backing-store size (device-pixel-ratio aware) from the container's
+  // current clientWidth/clientHeight. Shared by the constructor and
+  // resize() so both stay in sync with exactly the same sizing logic.
+  _applySize() {
+    this.width  = this.el.clientWidth  - this.margin.left - this.margin.right;
+    this.height = this.el.clientHeight - this.margin.top  - this.margin.bottom;
+
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width  = this.el.clientWidth  * dpr;
+    this.canvas.height = this.el.clientHeight * dpr;
+    this.canvas.style.width  = `${this.el.clientWidth}px`;
+    this.canvas.style.height = `${this.el.clientHeight}px`;
+    this.ctx.scale(dpr, dpr);
+  }
+
+  // Recomputes canvas/axes sizing for a new container size (e.g. after a
+  // collapse/fullscreen layout toggle) and rebuilds the base scales +
+  // quadtree against the current points, then redraws.
+  resize() {
+    this._applySize();
+    this.axes.resize(this.width, this.height);
+
+    if (this.pointLayer.points.length) {
+      const baseXScale = d3.scaleLinear(d3.extent(this.pointLayer.points, d => d.x), [20, this.width - 20]);
+      const baseYScale = d3.scaleLinear(d3.extent(this.pointLayer.points, d => d.y), [this.height - 20, 20]);
+      this.pointLayer.baseXScale = baseXScale;
+      this.pointLayer.baseYScale = baseYScale;
+      this.quadtree = d3.quadtree()
+        .x(d => baseXScale(d.x))
+        .y(d => baseYScale(d.y))
+        .addAll(this.pointLayer.points);
+    }
+    this._draw();
+    this._updateAxes();
+  }
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);

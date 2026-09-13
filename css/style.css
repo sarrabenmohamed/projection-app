@@ -50,15 +50,24 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 }
 #format-help code { background: #f0f0f0; padding: 0 3px; border-radius: 2px; }
 
-#data-table {
-  height: 260px;
+.view-panel { display: flex; flex-direction: column; overflow: hidden; }
+.view-panel.hidden { display: none; }
+.view-panel.fullscreen { flex: 1 !important; height: auto !important; }
+
+.view-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 10px; background: #f7f7f7; border-bottom: 1px solid #ddd;
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid #ddd;
-  background: #fff;
-  overflow: hidden;
 }
+.view-title { font-size: 0.78em; font-weight: 600; color: #555; }
+.view-btn {
+  font-size: 0.85em; width: 20px; height: 20px; line-height: 1;
+  border: 1px solid #ccc; background: #fff; border-radius: 3px; cursor: pointer;
+}
+.view-btn:hover { background: #eee; }
+
+#data-table-panel { height: 260px; flex-shrink: 0; border-top: 1px solid #ddd; background: #fff; }
+#data-table { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
 #data-table .dt-count { font-size: 0.75em; color: #888; white-space: nowrap; }
@@ -83,6 +92,7 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table .dt-foot button { cursor: pointer; }
 
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#projection-panel { flex: 1; min-height: 0; }
 #projection { flex: 1; position: relative; min-height: 0; }
 
 #projection canvas { display: block; cursor: default; position: absolute; top: 0; left: 0; }

@@ -69,10 +69,22 @@
   </div>
 
   <div id="main">
-    <div id="projection">
-      <div id="projection-hint">Loading embeddings and running UMAP...</div>
+    <div id="projection-panel" class="view-panel">
+      <div class="view-header">
+        <span class="view-title">Projection</span>
+        <button type="button" class="view-btn" id="projection-fullscreen-btn" title="Fill available space">⤢</button>
+      </div>
+      <div id="projection">
+        <div id="projection-hint">Loading embeddings and running UMAP...</div>
+      </div>
     </div>
-    <div id="data-table"></div>
+    <div id="data-table-panel" class="view-panel">
+      <div class="view-header">
+        <span class="view-title">Data Table</span>
+        <button type="button" class="view-btn" id="data-table-fullscreen-btn" title="Fill available space">⤢</button>
+      </div>
+      <div id="data-table"></div>
+    </div>
   </div>
 </div>
 

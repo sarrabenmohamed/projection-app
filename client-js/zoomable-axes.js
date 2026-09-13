@@ -5,7 +5,9 @@
 
 export class ZoomableAxes {
   constructor(containerEl, targetEl, width, height, margin, onZoom) {
+    this._containerEl = containerEl;
     this._targetEl = targetEl;
+    this._margin = margin;
     this.transform = d3.zoomIdentity;
 
     // Axes are a handful of tick marks, not one element per data point, so
@@ -43,5 +45,18 @@ export class ZoomableAxes {
     const zy = this.transform.rescaleY(baseYScale);
     this.xAxisG.call(d3.axisBottom(zx).ticks(6));
     this.yAxisG.call(d3.axisLeft(zy).ticks(6));
+  }
+
+  // Recomputes the SVG size, axis-group positions, and the zoom behavior's
+  // pannable/zoomable extent for a new container size — used when the
+  // plot's container is resized (e.g. a collapse/fullscreen toggle
+  // elsewhere in the layout), which the constructor never had to handle.
+  resize(width, height) {
+    this.svg
+      .attr('width', this._containerEl.clientWidth)
+      .attr('height', this._containerEl.clientHeight);
+    this.xAxisG.attr('transform', `translate(${this._margin.left},${height + this._margin.top})`);
+    this.yAxisG.attr('transform', `translate(${this._margin.left},${this._margin.top})`);
+    this.zoom.extent([[0, 0], [width, height]]);
   }
 }
