@@ -48,8 +48,29 @@ class App {
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
+    document.getElementById('projection-fullscreen-btn')
+      .addEventListener('click', () => this._toggleFullscreen('projection-panel', 'data-table-panel'));
+    document.getElementById('data-table-fullscreen-btn')
+      .addEventListener('click', () => this._toggleFullscreen('data-table-panel', 'projection-panel'));
 
     this._refresh();
+  }
+
+  // Toggles `panelId` to fill #main (hiding `otherPanelId`), or restores
+  // the normal split if `panelId` is already fullscreen. The projection
+  // view's canvas has real pixel dimensions tied to its container, so it
+  // needs an explicit resize() after any layout change; the data table is
+  // plain flexed HTML and resizes itself via CSS alone.
+  _toggleFullscreen(panelId, otherPanelId) {
+    const panel = document.getElementById(panelId);
+    const other = document.getElementById(otherPanelId);
+    const turningOn = !panel.classList.contains('fullscreen');
+
+    panel.classList.toggle('fullscreen', turningOn);
+    other.classList.toggle('hidden', turningOn);
+    if (turningOn) other.classList.remove('fullscreen');
+
+    this.view.resize();
   }
 
   _toggleFormatHelp() {
