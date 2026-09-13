@@ -7,6 +7,7 @@ import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
 import { LangFilter } from './lang-filter.js';
+import { readUrlState, writeUrlState } from './url-state.js';
 
 const BACKEND_URL = 'http://localhost:8500';
 
@@ -32,11 +33,31 @@ class App {
     this._translationsShown = false;
     this._tokenOverlayPointId = null;
     this._neighborsPointId = null;
+    this._pendingSelection = null;
   }
 
-  init() {
+  async init() {
     this.view = new ProjectionView('projection');
     this.view._onBackgroundClick = () => this.onBackgroundClick();
+
+    // Restore shareable state from the URL (see url-state.js) before the
+    // first fetch, so method/metric are right from the initial load and a
+    // selection can be re-applied once points exist.
+    const urlState = readUrlState();
+    if (urlState.method) document.getElementById('method-select').value = urlState.method;
+    if (urlState.metric) document.getElementById('metric-select').value = urlState.metric;
+    if (urlState.labelBy) {
+      document.getElementById('label-select').value = urlState.labelBy;
+      this.view.setLabelBy(urlState.labelBy);
+    }
+    if (urlState.id) {
+      this._pendingSelection = {
+        id: urlState.id,
+        translations: urlState.translations === '1',
+        tokens: urlState.tokens === '1',
+        neighborsK: urlState.neighbors,
+      };
+    }
 
     document.getElementById('file-input')
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
@@ -47,16 +68,70 @@ class App {
     document.getElementById('refit-button')
       .addEventListener('click', () => this._refresh());
     document.getElementById('label-select')
-      .addEventListener('change', e => this.view.setLabelBy(e.target.value));
+      .addEventListener('change', e => { this.view.setLabelBy(e.target.value); this._syncUrl(); });
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
     document.getElementById('projection-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('projection-panel', 'data-table-panel'));
     document.getElementById('data-table-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel', 'projection-panel'));
+    document.getElementById('copy-link-button')
+      .addEventListener('click', () => this._copyLink());
     this._initLayoutConfig();
 
-    this._refresh();
+    await this._refresh();
+    await this._applyPendingSelection();
+  }
+
+  // Reflects the currently shareable state (method, metric, label-by, and
+  // single-point selection) into the URL query string. Called at the end
+  // of every state-changing action rather than continuously, so the URL
+  // always matches what "Copy link" would hand someone else.
+  _syncUrl() {
+    const state = {
+      method: document.getElementById('method-select').value,
+      metric: document.getElementById('metric-select').value,
+      labelBy: document.getElementById('label-select').value,
+    };
+    if (this._selectedPoint) {
+      state.id = String(this._selectedPoint.id);
+      if (this._translationsShown) state.translations = '1';
+      if (this._tokenOverlayPointId === this._selectedPoint.id) state.tokens = '1';
+      if (this._neighborsPointId === this._selectedPoint.id) state.neighbors = String(this.table.neighborsK());
+    }
+    writeUrlState(state);
+  }
+
+  // Re-applies a selection restored from the URL, once points from the
+  // initial load are available. Only runs once — subsequent refreshes
+  // (method/metric change, refit, upload) reset selection deliberately and
+  // shouldn't resurrect a stale link's point.
+  async _applyPendingSelection() {
+    if (!this._pendingSelection) return;
+    const { id, translations, tokens, neighborsK } = this._pendingSelection;
+    this._pendingSelection = null;
+
+    const point = this.points.find(p => String(p.id) === id);
+    if (!point) return;
+
+    this._selectSentence(point);
+    if (translations) this.onToggleTranslations(point);
+    if (tokens && point.hasTokens) await this.onToggleTokens(point);
+    if (neighborsK) {
+      this.table.setNeighborsK(neighborsK);
+      await this.onToggleNeighbors(point);
+    }
+  }
+
+  async _copyLink() {
+    const feedback = document.getElementById('copy-link-feedback');
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      feedback.textContent = 'Copied!';
+    } catch {
+      feedback.textContent = 'Copy failed';
+    }
+    setTimeout(() => { feedback.textContent = ''; }, 1500);
   }
 
   // Layout config panel: lets the sidebar/projection/table each be hidden
@@ -214,6 +289,7 @@ class App {
     this.langFilter.setLangs(meta.lang_codes);
     this.table.setPoints(this.points);
     this.view.update(this.points, d => this.onCanvasClickPoint(d));
+    this._syncUrl();
   }
 
   // Canvas points are always sentences — token overlay points aren't
@@ -247,6 +323,7 @@ class App {
     this._selectedPoint = point;
     this.view.setSelectedId(point.id);
     this.table.selectRow(point.id);
+    this._syncUrl();
   }
 
   onBackgroundClick() {
@@ -255,6 +332,7 @@ class App {
     this._selectedPoint = null;
     this.view.clearSelectedId();
     this.table.clearSelection();
+    this._syncUrl();
   }
 
   _clearSelectionSideEffects() {
@@ -277,6 +355,7 @@ class App {
       this.table.showTranslationsFor(point.groupKey);
       this._translationsShown = true;
     }
+    this._syncUrl();
   }
 
   // Toggles the token overlay for the currently selected point. Token
@@ -325,6 +404,7 @@ class App {
     }));
     this.view.setTokenOverlay(tokenPoints);
     this.table.showTokensFor(point.id, tokenPoints);
+    this._syncUrl();
   }
 
   _clearTokenOverlay() {
@@ -332,6 +412,7 @@ class App {
     this.table.hideTokensFor(this._tokenOverlayPointId);
     this._tokenOverlayPointId = null;
     this.view.clearTokenOverlay();
+    this._syncUrl();
   }
 
   // Nearest neighbors are computed on the full embedding vectors (see
@@ -358,12 +439,14 @@ class App {
 
     this._neighborsPointId = point.id;
     this.table.showNeighborsFor(point.id, res.neighbors);
+    this._syncUrl();
   }
 
   _clearNeighbors() {
     if (this._neighborsPointId === null) return;
     this.table.hideNeighborsFor(this._neighborsPointId);
     this._neighborsPointId = null;
+    this._syncUrl();
   }
 }
 

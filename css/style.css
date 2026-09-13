@@ -11,7 +11,9 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
   border-right: 1px solid #ddd;
   overflow-y: auto;
 }
-#status { font-size: 0.8em; color: #888; font-style: italic; margin-bottom: 12px; }
+#status { font-size: 0.8em; color: #888; font-style: italic; margin-bottom: 6px; }
+#copy-link-button { font-size: 0.78em; padding: 3px 8px; cursor: pointer; margin-bottom: 12px; }
+#copy-link-feedback { font-size: 0.78em; color: #137333; margin-left: 6px; }
 
 #lang-filter-controls { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; }
 #lang-filter-controls label { display: block; font-size: 0.8em; color: #555; margin-bottom: 4px; }
