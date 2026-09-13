@@ -52,8 +52,55 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('projection-panel', 'data-table-panel'));
     document.getElementById('data-table-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel', 'projection-panel'));
+    this._initLayoutConfig();
 
     this._refresh();
+  }
+
+  // Layout config panel: lets the sidebar/projection/table each be hidden
+  // independently (unlike fullscreen, which always keeps exactly one view
+  // visible), persisted across reloads via localStorage. Never allows both
+  // the projection and data-table panels to be hidden at once — that would
+  // leave #main empty with no way to get either back.
+  _initLayoutConfig() {
+    const STORAGE_KEY = 'projection-app-layout';
+    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel' };
+    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table' };
+
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { saved = {}; }
+    for (const key of Object.keys(panelIdFor)) {
+      const visible = saved[key] !== false;
+      document.getElementById(panelIdFor[key]).classList.toggle('hidden', !visible);
+      document.getElementById(checkboxIdFor[key]).checked = visible;
+    }
+
+    document.getElementById('layout-config-toggle').addEventListener('click', () => {
+      document.getElementById('layout-config-panel').classList.toggle('visible');
+    });
+
+    for (const key of Object.keys(checkboxIdFor)) {
+      document.getElementById(checkboxIdFor[key]).addEventListener('change', e => {
+        const wantVisible = e.target.checked;
+        if (!wantVisible && key !== 'sidebar') {
+          const otherKey = key === 'projection' ? 'dataTable' : 'projection';
+          if (!document.getElementById(checkboxIdFor[otherKey]).checked) {
+            e.target.checked = true; // refuse to hide both view panels at once
+            return;
+          }
+        }
+
+        const panel = document.getElementById(panelIdFor[key]);
+        panel.classList.toggle('hidden', !wantVisible);
+        panel.classList.remove('fullscreen'); // avoid a stale fullscreen+hidden combo
+
+        const current = {};
+        for (const k of Object.keys(checkboxIdFor)) current[k] = document.getElementById(checkboxIdFor[k]).checked;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+
+        if (key === 'projection' && this.view) this.view.resize();
+      });
+    }
   }
 
   // Toggles `panelId` to fill #main (hiding `otherPanelId`), or restores

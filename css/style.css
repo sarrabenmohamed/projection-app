@@ -50,9 +50,24 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 }
 #format-help code { background: #f0f0f0; padding: 0 3px; border-radius: 2px; }
 
+.hidden { display: none !important; }
 .view-panel { display: flex; flex-direction: column; overflow: hidden; }
-.view-panel.hidden { display: none; }
 .view-panel.fullscreen { flex: 1 !important; height: auto !important; }
+
+#layout-config-toggle {
+  position: fixed; top: 8px; right: 8px; z-index: 500;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid #ccc; background: #fff; cursor: pointer; font-size: 14px;
+}
+#layout-config-panel {
+  display: none;
+  position: fixed; top: 42px; right: 8px; z-index: 500;
+  background: #fff; border: 1px solid #ddd; border-radius: 4px;
+  padding: 8px 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 0.8em;
+}
+#layout-config-panel.visible { display: block; }
+#layout-config-panel label { display: block; margin: 4px 0; cursor: pointer; white-space: nowrap; }
 
 .view-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -67,6 +82,9 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 .view-btn:hover { background: #eee; }
 
 #data-table-panel { height: 260px; flex-shrink: 0; border-top: 1px solid #ddd; background: #fff; }
+/* Projection is hidden (not just collapsed via its own fullscreen class) -
+   let the table take the freed space instead of leaving it blank. */
+#projection-panel.hidden ~ #data-table-panel { flex: 1; height: auto; }
 #data-table { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
