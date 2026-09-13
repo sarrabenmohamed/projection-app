@@ -29,6 +29,14 @@ cache instantly. Customize it via env vars: `PROJECTION_LANGUAGES`,
 `PROJECTION_N_SENTENCES`, `PROJECTION_MODEL`, `PROJECTION_POOLING`
 (`mean` | `max` | `cls` — how token vectors combine into a sentence vector).
 
+## Demo
+
+No HuggingFace access or GPU needed to try the app: open it, click "Load
+embeddings JSON", and pick `examples/sample_embeddings.json` — 9 toy
+sentences (3 languages × 3 parallel translations, random but
+language-clustered 8-dim vectors) with token vectors included, so every
+feature (translations, tokens, neighbors) has something to show.
+
 ## Using it
 
 - **Select a point** (click on the plot or a data-table row) to highlight
