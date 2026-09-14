@@ -39,14 +39,23 @@ feature (translations, tokens, neighbors) has something to show.
 
 ## Using it
 
-- **Select a point** (click on the plot or a data-table row) to highlight
-  it — the table row reveals **Show translations** / **Show tokens** /
-  **Show neighbors**.
-- **Show translations** isolates its parallel sentences on the plot;
-  **Show tokens** overlays that sentence's token embeddings in the same
-  UMAP space (auto-switches method to UMAP if needed).
-- **Show neighbors** lists the *k* nearest points by full-vector distance
-  (id, text, distance) — set *k* in the table header.
+- **Pin a point** (click on the plot or a data-table row) to add it to
+  your selection — pin more than one to compare them. Click a pinned
+  point again to unpin it, or click empty canvas space to clear every
+  pin at once.
+- Each pinned point gets its own **Actions ▾** menu (in the data table
+  or the new **Selection panel**) — independently toggle its tokens and
+  nearest neighbors. **Translations** are the one exception: only
+  available while exactly one point is pinned. Tokens overlay that
+  sentence's token embeddings in the same UMAP space (auto-switches
+  method to UMAP if needed); neighbors lists the *k* nearest points by
+  full-vector distance (id, text, distance), with *k* set inline in the
+  menu.
+- The **Selection panel** lists everything currently pinned in one place,
+  with a color swatch matching its canvas ring; click a row to focus it,
+  or its **×** to unpin.
+- **show_selected** (data table) filters the table down to just the
+  pinned rows.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   **Refit** forces a manual re-run.
 - **Label on hover** — choose what the tooltip shows (text/ID/language).
