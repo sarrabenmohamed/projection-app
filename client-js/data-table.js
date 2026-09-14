@@ -37,10 +37,12 @@ export class DataTable {
     this._sortKey = null;
     this._sortAsc = true;
     this._page = 0;
+    this._showSelectedOnly = false;
 
     this.container.innerHTML = `
       <div class="dt-top">
         <input type="text" class="dt-search" placeholder="Search language or text...">
+        <label class="dt-show-selected-label"><input type="checkbox" class="dt-show-selected"> Show selected</label>
         <span class="dt-count"></span>
       </div>
       <div class="dt-scroll">
@@ -77,6 +79,11 @@ export class DataTable {
       this._page = 0;
       this._render();
     });
+    this.container.querySelector('.dt-show-selected').addEventListener('change', e => {
+      this._showSelectedOnly = e.target.checked;
+      this._page = 0;
+      this._render();
+    });
     this.container.querySelectorAll('th[data-key]').forEach(th => {
       th.addEventListener('click', () => this._sortBy(th.dataset.key));
     });
@@ -98,6 +105,8 @@ export class DataTable {
     this._searchInput.value = '';
     this._sortKey = null;
     this._page = 0;
+    this._showSelectedOnly = false;
+    this.container.querySelector('.dt-show-selected').checked = false;
     this._render();
   }
 
@@ -151,6 +160,10 @@ export class DataTable {
       rows = q
         ? this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q))
         : this.points;
+    }
+    if (this._showSelectedOnly) {
+      const pinnedIds = new Set(this._pins.map(p => p.point.id));
+      rows = rows.filter(p => pinnedIds.has(p.id));
     }
     if (this._sortKey) {
       const key = this._sortKey;
