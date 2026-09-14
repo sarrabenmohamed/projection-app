@@ -54,8 +54,10 @@ feature (translations, tokens, neighbors) has something to show.
   neutral gray.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
   expected format.
-- **Copy link** — copies a URL with the current method/metric/label/selection
-  as query params; opening it restores that view.
+- **Copy link** — copies a URL with the current method/metric/label and
+  pinned point ids as query params; opening it re-pins the same points
+  (translations/tokens/neighbors toggles are not restored — every
+  re-pinned point starts with those off).
 
 ## Troubleshooting
 

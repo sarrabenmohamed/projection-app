@@ -3,7 +3,7 @@
 // history.replaceState — lets a "Copy link" button hand off the current
 // view without a page reload or extra browser-history entries.
 
-const KEYS = ['method', 'metric', 'labelBy', 'id', 'translations', 'tokens', 'neighbors'];
+const KEYS = ['method', 'metric', 'labelBy', 'ids'];
 
 export function readUrlState() {
   const params = new URLSearchParams(window.location.search);

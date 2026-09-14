@@ -48,7 +48,7 @@ class App {
     this._focusedId = null;
     this._detailState = new Map();  // id -> {translations, tokens, tokenPoints, neighbors, neighborsK, neighborRows}
     this._pinColors = new Map();    // id -> color string
-    this._pendingSelection = null;  // still the old single-id shape here — Task 6 renames this to _pendingSelectionIds when it rewrites URL restore end-to-end
+    this._pendingSelectionIds = null;
   }
 
   async init() {
@@ -65,13 +65,8 @@ class App {
       document.getElementById('label-select').value = urlState.labelBy;
       this.view.setLabelBy(urlState.labelBy);
     }
-    if (urlState.id) {
-      this._pendingSelection = {
-        id: urlState.id,
-        translations: urlState.translations === '1',
-        tokens: urlState.tokens === '1',
-        neighborsK: urlState.neighbors,
-      };
+    if (urlState.ids) {
+      this._pendingSelectionIds = urlState.ids.split(',').filter(Boolean);
     }
 
     document.getElementById('file-input')
@@ -101,35 +96,37 @@ class App {
     await this._applyPendingSelection();
   }
 
-  // Reflects the currently shareable state (method, metric, label-by, and
-  // single-point selection) into the URL query string. Called at the end
-  // of every state-changing action rather than continuously, so the URL
-  // always matches what "Copy link" would hand someone else.
+  // Reflects the currently shareable state (method, metric, label-by,
+  // and the pinned id set) into the URL query string. Called at the end
+  // of every state-changing action so a "Copy link" click always hands
+  // off exactly what's currently pinned.
   _syncUrl() {
     const state = {
       method: document.getElementById('method-select').value,
       metric: document.getElementById('metric-select').value,
       labelBy: document.getElementById('label-select').value,
     };
-    if (this._selectedPoint) {
-      state.id = String(this._selectedPoint.id);
-      if (this._translationsShown) state.translations = '1';
-      if (this._tokenOverlayPointId === this._selectedPoint.id) state.tokens = '1';
-      if (this._neighborsPointId === this._selectedPoint.id) state.neighbors = String(this.table.neighborsK());
-    }
+    if (this._selection.length) state.ids = this._selection.map(String).join(',');
     writeUrlState(state);
   }
 
-  // Re-applies a selection restored from the URL, once points from the
-  // initial load are available. Only runs once — subsequent refreshes
-  // (method/metric change, refit, upload) reset selection deliberately and
-  // shouldn't resurrect a stale link's point.
+  // Re-pins every id from a restored URL, once points from the initial
+  // load are available. Only runs once — subsequent refreshes reset
+  // selection deliberately and shouldn't resurrect a stale link's pins.
+  // Ids are re-pinned in URL order, so the last one ends up focused
+  // (_togglePin always focuses whatever it just pinned) — matching
+  // "last = focused" from the design doc, without needing to reorder
+  // anything. Per-pin translations/tokens/neighbors flags are NOT
+  // restored (see SELECTION-STATE.md) — every restored pin starts with
+  // all three off.
   async _applyPendingSelection() {
-    if (!this._pendingSelection) return;
-    this._pendingSelection = null;
-    // URL-based restore is rewritten for multi-pin selection in Task 6;
-    // until then this deliberately does nothing rather than calling into
-    // methods this task and Task 3 remove.
+    if (!this._pendingSelectionIds) return;
+    const ids = this._pendingSelectionIds;
+    this._pendingSelectionIds = null;
+    for (const id of ids) {
+      const point = this.points.find(p => String(p.id) === id);
+      if (point) this._togglePin(point);
+    }
   }
 
   async _copyLink() {
