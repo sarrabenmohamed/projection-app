@@ -234,7 +234,7 @@ export class DataTable {
         onToggleTokens: pt => this._onToggleTokens(pt),
         onToggleNeighbors: pt => this._onToggleNeighbors(pt),
         onChangeK: (pt, k) => this._onChangeNeighborsK(pt, k),
-      }));
+      }, 'table'));
     }
 
     tr.addEventListener('click', () => this._onRowClick({ ...p, type: 'sentence' }));

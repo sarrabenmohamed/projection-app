@@ -6,9 +6,9 @@
 // full tbody teardown-and-rebuild on every toggle (see data-table.js's
 // _render()), which would otherwise destroy the "open" class the instant
 // a checklist line inside this very menu is clicked.
-let openMenuId = null; // at most one Actions menu open across the whole app at a time
+let openMenuId = null; // at most one Actions menu open per container (keyed by `${ownerKey}:${point.id}`) at a time
 
-export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }) {
+export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }, ownerKey) {
   const wrap = document.createElement('span');
   wrap.className = 'actions-menu';
 
@@ -69,13 +69,15 @@ export function renderActionsMenu(point, detail, canTranslate, { onToggleTransla
   configureLine.setAttribute('aria-disabled', 'true');
   menu.appendChild(configureLine);
 
-  if (openMenuId === point.id) menu.classList.add('open');
+  const menuKey = `${ownerKey}:${point.id}`;
+
+  if (openMenuId === menuKey) menu.classList.add('open');
 
   btn.addEventListener('click', e => {
     e.stopPropagation();
-    openMenuId = (openMenuId === point.id) ? null : point.id;
+    openMenuId = (openMenuId === menuKey) ? null : menuKey;
     document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
-    if (openMenuId === point.id) menu.classList.add('open');
+    if (openMenuId === menuKey) menu.classList.add('open');
   });
 
   return wrap;
