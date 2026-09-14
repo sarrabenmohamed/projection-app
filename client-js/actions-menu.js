@@ -1,7 +1,12 @@
 // Shared "Actions ▾" dropdown for one pinned point — used identically by
-// DataTable and SelectionPanel. Stateless beyond the DOM node it builds:
-// every render reads current toggle state from `detail` and calls back
-// into App, which owns _detailState as the single source of truth.
+// DataTable and SelectionPanel. Every render reads current toggle state
+// from `detail` and calls back into App, which owns _detailState as the
+// single source of truth. Which menu is *open*, however, is tracked here
+// as module-level state (not a DOM node's CSS class) — DataTable does a
+// full tbody teardown-and-rebuild on every toggle (see data-table.js's
+// _render()), which would otherwise destroy the "open" class the instant
+// a checklist line inside this very menu is clicked.
+let openMenuId = null; // at most one Actions menu open across the whole app at a time
 
 export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }) {
   const wrap = document.createElement('span');
@@ -64,11 +69,13 @@ export function renderActionsMenu(point, detail, canTranslate, { onToggleTransla
   configureLine.setAttribute('aria-disabled', 'true');
   menu.appendChild(configureLine);
 
+  if (openMenuId === point.id) menu.classList.add('open');
+
   btn.addEventListener('click', e => {
     e.stopPropagation();
-    const isOpen = menu.classList.contains('open');
+    openMenuId = (openMenuId === point.id) ? null : point.id;
     document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
-    menu.classList.toggle('open', !isOpen);
+    if (openMenuId === point.id) menu.classList.add('open');
   });
 
   return wrap;
@@ -98,10 +105,12 @@ function _menuLine({ label, checked, disabled, disabledTitle, onToggle }) {
 // once at app startup (App.init()), not once per rendered menu.
 export function installActionsMenuOutsideClickHandler() {
   document.addEventListener('click', () => {
+    openMenuId = null;
     document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      openMenuId = null;
       document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
     }
   });
