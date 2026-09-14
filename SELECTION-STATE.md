@@ -31,11 +31,11 @@ Four pieces of state, all on `App`:
   `_togglePin`, and deleted when it's unpinned — no stale entries linger
   for a point that isn't currently pinned.
 - `_pinColors` — `Map<id, color>` assigning each currently-pinned point
-  a color from a fixed palette (`d3.schemeTableau10`, module-level
-  `PIN_PALETTE` in `app.js` — distinct from the language filter's own
-  color scale; a pin and a language-filter selection are two independent
-  color systems that can coexist), assigned by pin order and cycling if
-  more than 8 points are pinned at once.
+  a color from a fixed 10-color palette (`d3.schemeTableau10`,
+  module-level `PIN_PALETTE` in `app.js` — distinct from the language
+  filter's own color scale; a pin and a language-filter selection are two
+  independent color systems that can coexist), assigned by pin order and
+  cycling if more than 10 points are pinned at once.
 
 `ProjectionView`/`PointLayer` mirror the pinned set via
 `setPinnedPoints(Array<{id, color, focused}>)` (one ring per pinned
@@ -183,8 +183,12 @@ above.
 - Row highlight uses that point's pin color instead of a single fixed
   selected-row color.
 - The `dt-show-selected` checkbox ("Show selected") in the `dt-top` bar
-  filters `_visibleRows()` to `p => this._selection.includes(p.id)` via
-  `_showSelectedOnly`* combined with the existing search filter by AND.
+  sets `_showSelectedOnly`*, which makes `_visibleRows()` additionally
+  filter down to whatever's in `DataTable`'s own mirrored `_pins` array
+  (`const pinnedIds = new Set(this._pins.map(p => p.point.id)); rows =
+  rows.filter(p => pinnedIds.has(p.id));` — `DataTable` never reads
+  `App._selection` directly, only the `_pins` snapshot `setPins()` last
+  handed it), combined with the existing search filter by AND.
 - Translations keep the table's whole-table group filter, unchanged:
   `_translationsActivePin()` still makes `_visibleRows()` collapse to
   just that one group while active. This stays correct precisely
