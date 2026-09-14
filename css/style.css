@@ -115,6 +115,22 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table .dt-foot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px; border-top: 1px solid #ddd; font-size: 0.78em; color: #666; flex-shrink: 0; }
 #data-table .dt-foot button { cursor: pointer; }
 
+#selection-panel { height: 160px; flex-shrink: 0; border-top: 1px solid #ddd; background: #fff; }
+#selection-panel-body { flex: 1; overflow-y: auto; padding: 4px; }
+.sel-empty { padding: 12px; font-size: 0.8em; color: #888; text-align: center; }
+.sel-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 0.8em; cursor: pointer;
+}
+.sel-row:hover { background: #f8f8f8; }
+.sel-row-focused { background: #f5f5f5; }
+.sel-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.sel-id { font-weight: 600; white-space: nowrap; }
+.sel-lang { color: #666; white-space: nowrap; }
+.sel-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-remove { border: none; background: none; font-size: 1.1em; cursor: pointer; color: #999; flex-shrink: 0; }
+.sel-remove:hover { color: #c5221f; }
+
 .actions-menu { position: relative; display: inline-block; }
 .actions-menu-btn { font-size: 0.85em; padding: 2px 8px; cursor: pointer; }
 .actions-menu-dropdown {
