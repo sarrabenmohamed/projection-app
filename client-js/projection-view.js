@@ -65,10 +65,8 @@ export class ProjectionView {
   highlightParallel(groupKey) { this.pointLayer.highlightGroup(groupKey); }
   clearHighlight() { this.pointLayer.clear(); }
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
-  setTokenOverlay(tokenPoints) { this.pointLayer.setTokenOverlay(tokenPoints); }
-  clearTokenOverlay() { this.pointLayer.clearTokenOverlay(); }
-  setSelectedId(id) { this.pointLayer.setSelectedId(id); }
-  clearSelectedId() { this.pointLayer.clearSelectedId(); }
+  setPinnedPoints(pins) { this.pointLayer.setPinnedPoints(pins); }
+  setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
   setLabelBy(field) { this._labelBy = field; }
 
   // Sets this.width/height (plot area, margin excluded) and the canvas's

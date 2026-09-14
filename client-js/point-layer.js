@@ -9,6 +9,10 @@
 // real color, and everything else dims to context. With nothing selected,
 // every point is neutral gray at full opacity — the resting state shows
 // shape, not identity.
+//
+// Pinned points get a colored ring; `pins` is the full current list every
+// time (not incremental), computed by App from its selection set — so a
+// point that stops being pinned just isn't in the next call's array.
 
 const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
@@ -24,52 +28,48 @@ export class PointLayer {
     this._activeGroupKey = null;
     this._selectedLangs = new Set();
     this._langColorScale = null;
-    this._tokenOverlay = [];
-    this._selectedId = null;
+    this._tokenOverlayEntries = [];
+    this._pins = [];
   }
 
   setPoints(points, baseXScale, baseYScale) {
     this._activeGroupKey = null;
     this._selectedLangs = new Set();
     this._langColorScale = null;
-    this._tokenOverlay = [];
-    this._selectedId = null;
+    this._tokenOverlayEntries = [];
+    this._pins = [];
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
   }
 
-  // Selection is independent of the isolate-fade group and of hover: a
-  // point can be selected without anything being faded (selecting no
-  // longer isolates by itself — that's driven by the data table's
-  // "Show translations" action instead).
-  setSelectedId(id) {
-    this._selectedId = id;
+  // Pinned points get a colored ring; `pins` is the full current list every
+  // time (not incremental), computed by App from its selection set — so a
+  // point that stops being pinned just isn't in the next call's array.
+  setPinnedPoints(pins) {
+    this._pins = pins; // Array<{id, color, focused}>
     this._onChange();
   }
 
-  clearSelectedId() {
-    this._selectedId = null;
-    this._onChange();
-  }
-
-  // Token points for one currently-selected sentence, embedded into the
+  // Token points for pinned sentences, embedded into the
   // same UMAP space as `this.points` via the backend's shared reducer —
   // drawn on the same axes but tracked separately so they're unaffected by
   // the isolate-fade opacity animation and don't participate in click-to-
-  // isolate grouping.
-  setTokenOverlay(tokenPoints) {
-    this._tokenOverlay = tokenPoints;
-    this._onChange();
-  }
-
-  clearTokenOverlay() {
-    this._tokenOverlay = [];
+  // isolate grouping. Each pin's tokens are rendered in that pin's color.
+  setTokenOverlays(overlaysByPin) {
+    this._tokenOverlayEntries = [];
+    for (const [pinId, points] of overlaysByPin) {
+      const pin = this._pins.find(p => p.id === pinId);
+      const color = pin ? pin.color : '#e63946';
+      for (const point of points) {
+        this._tokenOverlayEntries.push({ ...point, pinId, color });
+      }
+    }
     this._onChange();
   }
 
   tokenOverlayPointAt(x, y, radius) {
-    for (const d of this._tokenOverlay) {
+    for (const d of this._tokenOverlayEntries) {
       const dx = this.baseXScale(d.x) - x;
       const dy = this.baseYScale(d.y) - y;
       if (Math.hypot(dx, dy) <= radius) return d;
@@ -117,16 +117,17 @@ export class PointLayer {
       ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
       ctx.strokeStyle = hovered ? '#333' : '#fff';
       ctx.stroke();
-      if (d.id === this._selectedId) {
+      const pin = this._pins.find(p => p.id === d.id);
+      if (pin) {
         ctx.beginPath();
         ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
         ctx.globalAlpha = d.opacity;
-        ctx.lineWidth = 1.8 / transform.k;
-        ctx.strokeStyle = '#1a73e8';
+        ctx.lineWidth = (pin.focused ? 2.6 : 1.8) / transform.k;
+        ctx.strokeStyle = pin.color;
         ctx.stroke();
       }
     }
-    for (const d of this._tokenOverlay) {
+    for (const d of this._tokenOverlayEntries) {
       const cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
       const size = 5 / transform.k;
       ctx.beginPath();
@@ -136,7 +137,7 @@ export class PointLayer {
       ctx.lineTo(cx - size, cy);
       ctx.closePath();
       ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#e63946';
+      ctx.fillStyle = d.color;
       ctx.fill();
       ctx.lineWidth = 0.75 / transform.k;
       ctx.strokeStyle = '#fff';
