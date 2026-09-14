@@ -70,7 +70,7 @@ export class SelectionPanel {
         onToggleTokens: pt => this._onToggleTokens(pt),
         onToggleNeighbors: pt => this._onToggleNeighbors(pt),
         onChangeK: (pt, k) => this._onChangeNeighborsK(pt, k),
-      }));
+      }, 'panel'));
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
