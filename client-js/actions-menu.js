@@ -1,0 +1,108 @@
+// Shared "Actions ▾" dropdown for one pinned point — used identically by
+// DataTable and SelectionPanel. Stateless beyond the DOM node it builds:
+// every render reads current toggle state from `detail` and calls back
+// into App, which owns _detailState as the single source of truth.
+
+export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }) {
+  const wrap = document.createElement('span');
+  wrap.className = 'actions-menu';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'actions-menu-btn';
+  btn.textContent = 'Actions ▾';
+  wrap.appendChild(btn);
+
+  const menu = document.createElement('div');
+  menu.className = 'actions-menu-dropdown';
+  wrap.appendChild(menu);
+
+  menu.appendChild(_menuLine({
+    label: 'Translations',
+    checked: detail.translations,
+    disabled: !canTranslate,
+    disabledTitle: 'Only available with a single point selected',
+    onToggle: () => onToggleTranslations(point),
+  }));
+
+  if (point.hasTokens) {
+    menu.appendChild(_menuLine({
+      label: 'Tokens',
+      checked: detail.tokens,
+      disabled: false,
+      onToggle: () => onToggleTokens(point),
+    }));
+  }
+
+  const neighborsLine = _menuLine({
+    label: 'Neighbors',
+    checked: detail.neighbors,
+    disabled: false,
+    onToggle: () => onToggleNeighbors(point),
+  });
+  const kInput = document.createElement('input');
+  kInput.type = 'number';
+  kInput.className = 'actions-menu-k';
+  kInput.min = '1';
+  kInput.max = '100';
+  kInput.value = String(detail.neighborsK);
+  kInput.addEventListener('click', e => e.stopPropagation());
+  kInput.addEventListener('change', () => {
+    const n = parseInt(kInput.value, 10);
+    onChangeK(point, Number.isFinite(n) && n > 0 ? n : 5);
+  });
+  neighborsLine.appendChild(kInput);
+  menu.appendChild(neighborsLine);
+
+  const divider = document.createElement('div');
+  divider.className = 'actions-menu-divider';
+  menu.appendChild(divider);
+
+  const configureLine = document.createElement('div');
+  configureLine.className = 'actions-menu-line actions-menu-disabled';
+  configureLine.textContent = 'Configure…';
+  configureLine.setAttribute('aria-disabled', 'true');
+  menu.appendChild(configureLine);
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = menu.classList.contains('open');
+    document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
+    menu.classList.toggle('open', !isOpen);
+  });
+
+  return wrap;
+}
+
+function _menuLine({ label, checked, disabled, disabledTitle, onToggle }) {
+  const line = document.createElement('div');
+  line.className = 'actions-menu-line' + (disabled ? ' actions-menu-disabled' : '');
+  if (disabled && disabledTitle) line.title = disabledTitle;
+
+  const check = document.createElement('span');
+  check.className = 'actions-menu-check';
+  check.textContent = checked ? '☑' : '☐';
+  line.appendChild(check);
+
+  const text = document.createElement('span');
+  text.textContent = label;
+  line.appendChild(text);
+
+  if (!disabled) {
+    line.addEventListener('click', e => { e.stopPropagation(); onToggle(); });
+  }
+  return line;
+}
+
+// Closes any open Actions dropdown on an outside click or Escape. Call
+// once at app startup (App.init()), not once per rendered menu.
+export function installActionsMenuOutsideClickHandler() {
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.actions-menu-dropdown.open').forEach(m => m.classList.remove('open'));
+    }
+  });
+}

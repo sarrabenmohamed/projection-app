@@ -4,6 +4,8 @@
 // row — App drives all of this through the same selection state it drives
 // the canvas with, so table and canvas selection always agree.
 
+import { renderActionsMenu } from './actions-menu.js';
+
 const PAGE_SIZE = 50;
 
 // Sentence text, language, and token strings all come from whatever
@@ -20,12 +22,13 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors }) {
+  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeNeighborsK }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onToggleTranslations = onToggleTranslations;
     this._onToggleTokens = onToggleTokens;
     this._onToggleNeighbors = onToggleNeighbors;
+    this._onChangeNeighborsK = onChangeNeighborsK;
 
     this.points = [];
     this._pins = []; // Array<{point, color, focused, detail}>
@@ -38,7 +41,6 @@ export class DataTable {
     this.container.innerHTML = `
       <div class="dt-top">
         <input type="text" class="dt-search" placeholder="Search language or text...">
-        <label class="dt-k-label">k: <input type="number" class="dt-neighbors-k" value="5" min="1" max="100"></label>
         <span class="dt-count"></span>
       </div>
       <div class="dt-scroll">
@@ -66,7 +68,6 @@ export class DataTable {
     `;
 
     this._searchInput = this.container.querySelector('.dt-search');
-    this._neighborsKInput = this.container.querySelector('.dt-neighbors-k');
     this.tbody = this.container.querySelector('tbody');
     this._countEl = this.container.querySelector('.dt-count');
     this._pageEl = this.container.querySelector('.dt-page');
@@ -98,17 +99,6 @@ export class DataTable {
     this._sortKey = null;
     this._page = 0;
     this._render();
-  }
-
-  // Current value of the "k" input — read by App when it's about to fetch
-  // neighbors, so the count always reflects whatever the user last typed.
-  neighborsK() {
-    const n = parseInt(this._neighborsKInput.value, 10);
-    return Number.isFinite(n) && n > 0 ? n : 5;
-  }
-
-  setNeighborsK(k) {
-    this._neighborsKInput.value = k;
   }
 
   // Highlights a row without touching which sentence's actions are shown
@@ -226,31 +216,12 @@ export class DataTable {
     if (pin) {
       const actionsCell = tr.querySelector('.dt-actions-cell');
       const canTranslate = this._pins.length === 1;
-
-      const transBtn = document.createElement('button');
-      transBtn.type = 'button';
-      transBtn.className = 'dt-action-btn';
-      transBtn.disabled = !canTranslate;
-      if (!canTranslate) transBtn.title = 'Only available with a single point selected';
-      transBtn.textContent = pin.detail.translations ? 'Hide translations' : 'Show translations';
-      transBtn.addEventListener('click', e => { e.stopPropagation(); this._onToggleTranslations(p); });
-      actionsCell.appendChild(transBtn);
-
-      if (p.hasTokens) {
-        const tokBtn = document.createElement('button');
-        tokBtn.type = 'button';
-        tokBtn.className = 'dt-action-btn';
-        tokBtn.textContent = pin.detail.tokens ? 'Hide tokens' : 'Show tokens';
-        tokBtn.addEventListener('click', e => { e.stopPropagation(); this._onToggleTokens(p); });
-        actionsCell.appendChild(tokBtn);
-      }
-
-      const neighBtn = document.createElement('button');
-      neighBtn.type = 'button';
-      neighBtn.className = 'dt-action-btn';
-      neighBtn.textContent = pin.detail.neighbors ? 'Hide neighbors' : 'Show neighbors';
-      neighBtn.addEventListener('click', e => { e.stopPropagation(); this._onToggleNeighbors(p); });
-      actionsCell.appendChild(neighBtn);
+      actionsCell.appendChild(renderActionsMenu(p, pin.detail, canTranslate, {
+        onToggleTranslations: pt => this._onToggleTranslations(pt),
+        onToggleTokens: pt => this._onToggleTokens(pt),
+        onToggleNeighbors: pt => this._onToggleNeighbors(pt),
+        onChangeK: (pt, k) => this._onChangeNeighborsK(pt, k),
+      }));
     }
 
     tr.addEventListener('click', () => this._onRowClick({ ...p, type: 'sentence' }));

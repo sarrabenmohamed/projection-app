@@ -8,6 +8,7 @@ import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
 import { LangFilter } from './lang-filter.js';
 import { readUrlState, writeUrlState } from './url-state.js';
+import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
 
 const BACKEND_URL = 'http://localhost:8500';
 const PIN_PALETTE = d3.schemeTableau10;
@@ -23,6 +24,7 @@ class App {
         onToggleTranslations: point => this.onToggleTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleNeighbors: point => this.onToggleNeighbors(point),
+        onChangeNeighborsK: (point, k) => this.onChangeNeighborsK(point, k),
       }
     );
     this.langFilter = new LangFilter(
@@ -79,6 +81,7 @@ class App {
     document.getElementById('copy-link-button')
       .addEventListener('click', () => this._copyLink());
     this._initLayoutConfig();
+    installActionsMenuOutsideClickHandler();
 
     await this._refresh();
     await this._applyPendingSelection();
@@ -453,8 +456,7 @@ class App {
     }
 
     const metric = document.getElementById('metric-select').value;
-    const k = this.table.neighborsK();
-    detail.neighborsK = k;
+    const k = detail.neighborsK;
     this._setLoading(true, 'Finding nearest neighbors...');
     let res;
     try {
@@ -472,6 +474,18 @@ class App {
     liveDetail.neighborRows = res.neighbors;
     this._syncPins();
     this._syncUrl();
+  }
+
+  // Changing k while neighbors are already shown re-fetches immediately
+  // at the new count rather than just remembering it for next time.
+  async onChangeNeighborsK(point, k) {
+    const detail = this._detailState.get(point.id);
+    if (!detail) return;
+    detail.neighborsK = k;
+    if (!detail.neighbors) { this._syncPins(); return; }
+    detail.neighbors = false;
+    this._syncPins();
+    await this.onToggleNeighbors(point);
   }
 }
 
