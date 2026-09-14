@@ -102,7 +102,10 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table td.dt-text { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #data-table tr.dt-row { cursor: pointer; }
 #data-table tr.dt-row:hover td { background: #f8f8f8; }
-#data-table tr.dt-row-selected td { background: #e8f0fe; }
+#data-table tr.dt-row-pinned { box-shadow: inset 3px 0 0 0 var(--pin-color); }
+#data-table tr.dt-row-focused td { background: #f5f5f5; }
+#data-table tr.dt-row-highlighted td { background: #e8f0fe; }
+#data-table .dt-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
 #data-table tr.dt-row-token td { color: #666; }
 #data-table tr.dt-row-token td.dt-text { padding-left: 20px; }
 #data-table tr.dt-row-neighbor td { color: #666; }

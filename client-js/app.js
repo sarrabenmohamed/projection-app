@@ -10,6 +10,7 @@ import { LangFilter } from './lang-filter.js';
 import { readUrlState, writeUrlState } from './url-state.js';
 
 const BACKEND_URL = 'http://localhost:8500';
+const PIN_PALETTE = d3.schemeTableau10;
 
 class App {
   constructor() {
@@ -29,11 +30,11 @@ class App {
       selected => this.view.setLangFilter(selected)
     );
     this.points = [];
-    this._selectedPoint = null;
-    this._translationsShown = false;
-    this._tokenOverlayPointId = null;
-    this._neighborsPointId = null;
-    this._pendingSelection = null;
+    this._selection = [];           // ordered array of pinned ids, insertion order
+    this._focusedId = null;
+    this._detailState = new Map();  // id -> {translations, tokens, tokenPoints, neighbors, neighborsK, neighborRows}
+    this._pinColors = new Map();    // id -> color string
+    this._pendingSelection = null;  // still the old single-id shape here — Task 6 renames this to _pendingSelectionIds when it rewrites URL restore end-to-end
   }
 
   async init() {
@@ -108,19 +109,10 @@ class App {
   // shouldn't resurrect a stale link's point.
   async _applyPendingSelection() {
     if (!this._pendingSelection) return;
-    const { id, translations, tokens, neighborsK } = this._pendingSelection;
     this._pendingSelection = null;
-
-    const point = this.points.find(p => String(p.id) === id);
-    if (!point) return;
-
-    this._selectSentence(point);
-    if (translations) this.onToggleTranslations(point);
-    if (tokens && point.hasTokens) await this.onToggleTokens(point);
-    if (neighborsK) {
-      this.table.setNeighborsK(neighborsK);
-      await this.onToggleNeighbors(point);
-    }
+    // URL-based restore is rewritten for multi-pin selection in Task 6;
+    // until then this deliberately does nothing rather than calling into
+    // methods this task and Task 3 remove.
   }
 
   async _copyLink() {
@@ -263,13 +255,13 @@ class App {
     const hint = document.getElementById('projection-hint');
     if (hint) hint.remove();
 
-    this._selectedPoint = null;
-    this._translationsShown = false;
-    this._tokenOverlayPointId = null;
-    this._neighborsPointId = null;
+    this._selection = [];
+    this._focusedId = null;
+    this._detailState.clear();
+    this._pinColors.clear();
     this.view.clearHighlight();
-    this.view.clearSelectedId();
-    this.view.clearTokenOverlay();
+    this.view.setPinnedPoints([]);
+    this.view.setTokenOverlays(new Map());
 
     const coordsById = new Map(proj.points.map(p => [p.id, p]));
     this.points = meta.points.map(p => {
@@ -292,10 +284,33 @@ class App {
     this._syncUrl();
   }
 
+  // Rebuilds every consumer's view of the pinned set from scratch each
+  // time, rather than patching incrementally — simplest way to guarantee
+  // canvas rings/overlays and the table's rendered actions never drift
+  // from _selection/_detailState.
+  _syncPins() {
+    const pins = this._selection.map(id => ({
+      point: this.points.find(p => p.id === id),
+      color: this._pinColors.get(id),
+      focused: id === this._focusedId,
+      detail: this._detailState.get(id),
+    }));
+
+    this.view.setPinnedPoints(pins.map(p => ({ id: p.point.id, color: p.color, focused: p.focused })));
+
+    const overlaysByPin = new Map();
+    for (const p of pins) {
+      if (p.detail.tokens && p.detail.tokenPoints.length) overlaysByPin.set(p.point.id, p.detail.tokenPoints);
+    }
+    this.view.setTokenOverlays(overlaysByPin);
+
+    this.table.setPins(pins);
+  }
+
   // Canvas points are always sentences — token overlay points aren't
   // clickable on canvas (see projection-view.js's _onCanvasClick).
   onCanvasClickPoint(d) {
-    this._selectSentence(d);
+    this._togglePin(d);
   }
 
   onSelectRow(row) {
@@ -305,70 +320,88 @@ class App {
     }
     if (row.type === 'neighbor') {
       // Neighbor rows carry only {id, lang, text, distance} — jump to the
-      // full point object so selection state (groupKey, hasTokens, ...)
-      // stays consistent with canvas/table-driven selection.
+      // full point object so pin state (groupKey, hasTokens, ...) stays
+      // consistent with canvas/table-driven pinning.
       const full = this.points.find(p => p.id === row.id);
-      if (full) this._selectSentence(full);
+      if (full) this._togglePin(full);
       return;
     }
-    this._selectSentence(row);
+    this._togglePin(row);
   }
 
-  _selectSentence(point) {
-    if (this._selectedPoint && this._selectedPoint.id === point.id) {
-      this.onBackgroundClick();
-      return;
+  // Toggles `point`'s membership in the selection set. Pinning a *second*
+  // point while the sole existing pin has translations shown auto-clears
+  // that flag first — translations can only ever be active for exactly
+  // one pinned point (see onToggleTranslations), so going from 1 -> 2
+  // pins must never leave it active.
+  _togglePin(point) {
+    const idx = this._selection.indexOf(point.id);
+    if (idx === -1) {
+      if (this._selection.length === 1) {
+        const soleDetail = this._detailState.get(this._selection[0]);
+        if (soleDetail.translations) {
+          soleDetail.translations = false;
+          this.view.clearHighlight();
+        }
+      }
+      this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
+      this._selection.push(point.id);
+      this._detailState.set(point.id, {
+        translations: false, tokens: false, tokenPoints: [],
+        neighbors: false, neighborsK: 5, neighborRows: [],
+      });
+      this._focusedId = point.id;
+    } else {
+      this._selection.splice(idx, 1);
+      this._detailState.delete(point.id);
+      this._pinColors.delete(point.id);
+      if (this._focusedId === point.id) {
+        this._focusedId = this._selection.length ? this._selection[this._selection.length - 1] : null;
+      }
     }
-    this._clearSelectionSideEffects();
-    this._selectedPoint = point;
-    this.view.setSelectedId(point.id);
-    this.table.selectRow(point.id);
+    this._syncPins();
     this._syncUrl();
   }
 
   onBackgroundClick() {
-    if (this._selectedPoint === null) return;
-    this._clearSelectionSideEffects();
-    this._selectedPoint = null;
-    this.view.clearSelectedId();
-    this.table.clearSelection();
+    if (this._selection.length === 0) return;
+    this._selection = [];
+    this._focusedId = null;
+    this._detailState.clear();
+    this._pinColors.clear();
+    this.view.clearHighlight();
+    this._syncPins();
     this._syncUrl();
   }
 
-  _clearSelectionSideEffects() {
-    if (this._translationsShown) {
-      this.view.clearHighlight();
-      this.table.hideTranslations();
-      this._translationsShown = false;
-    }
-    this._clearTokenOverlay();
-    this._clearNeighbors();
-  }
-
+  // Translations only exist for exactly one pinned point at a time — see
+  // SELECTION-STATE.md. Callers (the row's button/dropdown) are expected
+  // to already be disabled when _selection.length !== 1, but this method
+  // defends against being reached anyway rather than corrupting state.
   onToggleTranslations(point) {
-    if (this._translationsShown) {
-      this.view.clearHighlight();
-      this.table.hideTranslations();
-      this._translationsShown = false;
-    } else {
-      this.view.highlightParallel(point.groupKey);
-      this.table.showTranslationsFor(point.groupKey);
-      this._translationsShown = true;
-    }
+    if (this._selection.length !== 1 || this._selection[0] !== point.id) return;
+    const detail = this._detailState.get(point.id);
+    detail.translations = !detail.translations;
+    if (detail.translations) this.view.highlightParallel(point.groupKey);
+    else this.view.clearHighlight();
+    this._syncPins();
     this._syncUrl();
   }
 
-  // Toggles the token overlay for the currently selected point. Token
-  // projection only exists in the shared UMAP space (see server.py's
-  // _get_umap_reducer), so if the main view is on t-SNE this switches it to
-  // UMAP first — re-running _refresh() resets selection state, so the
-  // point is re-selected afterward before fetching its tokens. `point` is
-  // captured as a whole object (not just its id) before the await, since
-  // `_refresh()` replaces `this.points` with new objects but this
-  // reference and its fields stay valid regardless.
+  // Tokens are independent per pinned point. Token projection only exists
+  // in the shared UMAP space (see server.py's _get_umap_reducer), so if
+  // the main view is on t-SNE this switches it to UMAP first — that runs
+  // _refresh(), which (like any _refresh()) wipes the entire selection —
+  // and then explicitly re-pins just this one point afterward, the one
+  // deliberate exception to "any _refresh() clears everything."
   async onToggleTokens(point) {
-    if (this._tokenOverlayPointId === point.id) {
-      this._clearTokenOverlay();
+    const detail = this._detailState.get(point.id);
+    if (!detail) return;
+    if (detail.tokens) {
+      detail.tokens = false;
+      detail.tokenPoints = [];
+      this._syncPins();
+      this._syncUrl();
       return;
     }
 
@@ -378,7 +411,8 @@ class App {
       await this._refresh();
       const reselected = this.points.find(p => p.id === point.id);
       if (!reselected) return;
-      this._selectSentence(reselected);
+      this._togglePin(reselected);
+      point = reselected;
       document.getElementById('status').textContent += ' · switched to UMAP to show tokens';
     }
 
@@ -394,38 +428,33 @@ class App {
     }
     this._setLoading(false);
 
-    this._tokenOverlayPointId = point.id;
-    const tokenPoints = proj.tokens.map((t, i) => ({
-      id: `${point.id}::${i}`,
-      lang: point.lang,
-      text: t.token,
-      x: t.x,
-      y: t.y,
+    const liveDetail = this._detailState.get(point.id);
+    if (!liveDetail) return; // unpinned while the request was in flight
+    liveDetail.tokens = true;
+    liveDetail.tokenPoints = proj.tokens.map((t, i) => ({
+      id: `${point.id}::${i}`, lang: point.lang, text: t.token, x: t.x, y: t.y,
     }));
-    this.view.setTokenOverlay(tokenPoints);
-    this.table.showTokensFor(point.id, tokenPoints);
+    this._syncPins();
     this._syncUrl();
   }
 
-  _clearTokenOverlay() {
-    if (this._tokenOverlayPointId === null) return;
-    this.table.hideTokensFor(this._tokenOverlayPointId);
-    this._tokenOverlayPointId = null;
-    this.view.clearTokenOverlay();
-    this._syncUrl();
-  }
-
-  // Nearest neighbors are computed on the full embedding vectors (see
-  // server.py's /neighbors), independent of projection method/metric, so
-  // unlike tokens this never needs to force a UMAP switch.
+  // Neighbors are independent per pinned point. Computed on the full
+  // embedding vectors (server.py's /neighbors), so unlike tokens this
+  // never needs to force a UMAP switch.
   async onToggleNeighbors(point) {
-    if (this._neighborsPointId === point.id) {
-      this._clearNeighbors();
+    const detail = this._detailState.get(point.id);
+    if (!detail) return;
+    if (detail.neighbors) {
+      detail.neighbors = false;
+      detail.neighborRows = [];
+      this._syncPins();
+      this._syncUrl();
       return;
     }
 
     const metric = document.getElementById('metric-select').value;
     const k = this.table.neighborsK();
+    detail.neighborsK = k;
     this._setLoading(true, 'Finding nearest neighbors...');
     let res;
     try {
@@ -437,15 +466,11 @@ class App {
     }
     this._setLoading(false);
 
-    this._neighborsPointId = point.id;
-    this.table.showNeighborsFor(point.id, res.neighbors);
-    this._syncUrl();
-  }
-
-  _clearNeighbors() {
-    if (this._neighborsPointId === null) return;
-    this.table.hideNeighborsFor(this._neighborsPointId);
-    this._neighborsPointId = null;
+    const liveDetail = this._detailState.get(point.id);
+    if (!liveDetail) return;
+    liveDetail.neighbors = true;
+    liveDetail.neighborRows = res.neighbors;
+    this._syncPins();
     this._syncUrl();
   }
 }
