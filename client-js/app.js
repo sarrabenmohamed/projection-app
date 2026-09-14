@@ -168,7 +168,7 @@ class App {
     for (const key of Object.keys(checkboxIdFor)) {
       document.getElementById(checkboxIdFor[key]).addEventListener('change', e => {
         const wantVisible = e.target.checked;
-        if (!wantVisible && key !== 'sidebar') {
+        if (!wantVisible && (key === 'projection' || key === 'dataTable')) {
           const otherKey = key === 'projection' ? 'dataTable' : 'projection';
           if (!document.getElementById(checkboxIdFor[otherKey]).checked) {
             e.target.checked = true; // refuse to hide both view panels at once
