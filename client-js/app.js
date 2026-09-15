@@ -79,6 +79,8 @@ class App {
       .addEventListener('click', () => this._refresh());
     document.getElementById('label-select')
       .addEventListener('change', e => { this.view.setLabelBy(e.target.value); this._syncUrl(); });
+    document.getElementById('fisheye-toggle')
+      .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
     document.getElementById('projection-fullscreen-btn')
