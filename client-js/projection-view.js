@@ -17,6 +17,11 @@ import { PointLayer } from './point-layer.js';
 import { ZoomableAxes } from './zoomable-axes.js';
 import { Tooltip } from './tooltip.js';
 
+// Fisheye lens size (screen pixels, constant regardless of zoom) and
+// strength — fixed for now rather than exposed as UI controls.
+const FISHEYE_RADIUS = 80;
+const FISHEYE_DISTORTION = 3;
+
 export class ProjectionView {
   constructor(containerId) {
     // bottom/left grown to fit axis tick labels; the canvas + axis SVG both
@@ -40,6 +45,8 @@ export class ProjectionView {
     this.quadtree = null;
     this._hoveredId = null;
     this._labelBy = 'text';
+    this._fisheyeEnabled = false;
+    this._fisheyeFocus = null;
 
     this.canvas.addEventListener('click', event => this._onCanvasClick(event));
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
@@ -68,6 +75,17 @@ export class ProjectionView {
   setPinnedPoints(pins) { this.pointLayer.setPinnedPoints(pins); }
   setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
   setLabelBy(field) { this._labelBy = field; }
+
+  // Turning the lens off clears its focus immediately (rather than waiting
+  // for the next mousemove) so the plot snaps back to its undistorted
+  // layout as soon as the toggle is unchecked, even if the mouse doesn't move.
+  setFisheyeEnabled(enabled) {
+    this._fisheyeEnabled = enabled;
+    if (!enabled) {
+      this._fisheyeFocus = null;
+      this._draw();
+    }
+  }
 
   // Sets this.width/height (plot area, margin excluded) and the canvas's
   // backing-store size (device-pixel-ratio aware) from the container's
@@ -108,7 +126,7 @@ export class ProjectionView {
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);
-    this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId);
+    this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId, this._fisheyeFocus);
   }
 
   _updateAxes() {
@@ -127,11 +145,18 @@ export class ProjectionView {
   // that as no-hit means such a click falls through to the background
   // handler, clearing the isolation instead of silently selecting something
   // hidden.
-  _pointAt(event) {
+  // Converts a mouse event's screen position into the same "local"
+  // (pre-zoom) coordinate space baseXScale/baseYScale output — i.e. what
+  // the quadtree is indexed in and what fisheyeFocus is expressed in.
+  _screenToLocal(event) {
     const rect = this.canvas.getBoundingClientRect();
     const screenX = event.clientX - rect.left - this.margin.left;
     const screenY = event.clientY - rect.top - this.margin.top;
-    const [x, y] = this.axes.transform.invert([screenX, screenY]);
+    return this.axes.transform.invert([screenX, screenY]);
+  }
+
+  _pointAt(event) {
+    const [x, y] = this._screenToLocal(event);
     const found = this.quadtree.find(x, y, 8 / this.axes.transform.k);
 
     const activeGroupKey = this.pointLayer.getActiveGroupKey();
@@ -142,11 +167,23 @@ export class ProjectionView {
   }
 
   _overlayPointAt(event) {
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX = event.clientX - rect.left - this.margin.left;
-    const screenY = event.clientY - rect.top - this.margin.top;
-    const [x, y] = this.axes.transform.invert([screenX, screenY]);
+    const [x, y] = this._screenToLocal(event);
     return this.pointLayer.tokenOverlayPointAt(x, y, 8 / this.axes.transform.k);
+  }
+
+  // Hit-testing (_pointAt/_overlayPointAt above) always uses the real,
+  // undistorted mouse position — the lens is a visual preview only, so
+  // clicking exactly where a point visually moved to (rather than its real
+  // position) won't select it. Radius is in screen pixels divided by the
+  // current zoom level, same pattern as the hit-test radius above, so the
+  // lens is a constant on-screen size regardless of zoom.
+  _updateFisheyeFocus(event) {
+    if (!this._fisheyeEnabled) {
+      this._fisheyeFocus = null;
+      return;
+    }
+    const [x, y] = this._screenToLocal(event);
+    this._fisheyeFocus = { x, y, radius: FISHEYE_RADIUS / this.axes.transform.k, distortion: FISHEYE_DISTORTION };
   }
 
   _onCanvasClick(event) {
@@ -160,12 +197,14 @@ export class ProjectionView {
   }
 
   _onCanvasMouseMove(event) {
+    this._updateFisheyeFocus(event);
+
     const overlayHit = this._overlayPointAt(event);
     if (overlayHit) {
       const rect = this.el.getBoundingClientRect();
       this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(overlayHit[this._labelBy]));
       this.canvas.style.cursor = 'default';
-      if (this._hoveredId !== null) {
+      if (this._hoveredId !== null || this._fisheyeEnabled) {
         this._hoveredId = null;
         this._draw();
       }
@@ -174,7 +213,7 @@ export class ProjectionView {
 
     const d = this._pointAt(event);
     const hoveredId = d ? d.id : null;
-    if (hoveredId !== this._hoveredId) {
+    if (hoveredId !== this._hoveredId || this._fisheyeEnabled) {
       this._hoveredId = hoveredId;
       this._draw();
     }
@@ -190,7 +229,9 @@ export class ProjectionView {
   _hideTooltip() {
     this.tooltip.hide();
     this.canvas.style.cursor = 'default';
-    if (this._hoveredId !== null) {
+    const hadFisheyeFocus = this._fisheyeFocus !== null;
+    this._fisheyeFocus = null;
+    if (this._hoveredId !== null || hadFisheyeFocus) {
       this._hoveredId = null;
       this._draw();
     }

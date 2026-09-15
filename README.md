@@ -59,6 +59,9 @@ feature (translations, tokens, neighbors) has something to show.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   **Refit** forces a manual re-run.
 - **Label on hover** — choose what the tooltip shows (text/ID/language).
+- **Fisheye lens** — check the box, then hover the plot to magnify points
+  near the cursor (a circular lens, not a graph-topology-aware distortion —
+  useful for pulling apart a dense cluster to click an individual point).
 - **Filter languages** — selected languages get real colors; the rest stay
   neutral gray.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the

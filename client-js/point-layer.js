@@ -18,6 +18,18 @@ const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
 const ISOLATED_OUT_OPACITY = 0;
 
+// Circular "magnifying glass" distortion: a point at offset (dx, dy) from
+// the lens focus, within `radius`, is pushed further from the focus (k > 1
+// near the center) while points near the edge of the lens compress back
+// toward their real position (k -> 1 exactly at d = radius, so there's no
+// visible seam where the lens ends). Points beyond `radius` are untouched.
+function _fisheyeOffset(dx, dy, radius, distortion) {
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= radius) return [dx, dy];
+  const k = (radius * (distortion + 1)) / (distortion * d + radius);
+  return [dx * k, dy * k];
+}
+
 export class PointLayer {
   constructor(onChange) {
     this._onChange = onChange; // called after every opacity update, so the owner redraws
@@ -100,13 +112,21 @@ export class PointLayer {
     return this._selectedLangs.has(d.lang) ? this._langColorScale(d.lang) : NEUTRAL_COLOR;
   }
 
-  draw(ctx, margin, transform, hoveredId) {
+  // fisheyeFocus, when active, is {x, y, radius, distortion} in the same
+  // "local" (pre-zoom) coordinate space as baseXScale/baseYScale output —
+  // see ProjectionView._updateFisheyeFocus for how it's computed.
+  draw(ctx, margin, transform, hoveredId, fisheyeFocus) {
     ctx.save();
     ctx.translate(margin.left, margin.top);
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
     for (const d of this.points) {
-      const cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+      let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+      if (fisheyeFocus) {
+        const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
+        cx = fisheyeFocus.x + ox;
+        cy = fisheyeFocus.y + oy;
+      }
       const hovered = d.id === hoveredId;
       ctx.beginPath();
       ctx.arc(cx, cy, 5 / transform.k, 0, 2 * Math.PI);
@@ -128,7 +148,12 @@ export class PointLayer {
       }
     }
     for (const d of this._tokenOverlayEntries) {
-      const cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+      let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+      if (fisheyeFocus) {
+        const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
+        cx = fisheyeFocus.x + ox;
+        cy = fisheyeFocus.y + oy;
+      }
       const size = 5 / transform.k;
       ctx.beginPath();
       ctx.moveTo(cx, cy - size);
