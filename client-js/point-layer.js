@@ -2,17 +2,21 @@
 // onto a given canvas context. Hides the whole d3.timer-driven opacity
 // animation behind highlightGroup/clear/restoreActive/setLangFilter.
 //
-// Color is filter-driven, not per-language-always-on: past a handful of
-// languages, giving every one its own hue stops being readable (colors
-// repeat, legends become unusable). So by default every point is neutral
-// gray; only languages explicitly selected via the language filter get a
-// real color, and everything else dims to context. With nothing selected,
-// every point is neutral gray at full opacity — the resting state shows
-// shape, not identity.
+// Two coloring modes, mutually exclusive (see setFamilyColorMode):
+// - Family mode (default): every point is colored by its language's
+//   linguistic family (lang-families.js) — always on, no filtering.
+// - Language-filter mode: the pre-existing behavior. Every point is
+//   neutral gray by default; only languages explicitly selected via the
+//   language filter get a real color, and everything else dims to
+//   context. Filter-driven rather than per-language-always-on because
+//   past a handful of languages, giving every one its own hue stops
+//   being readable (colors repeat, legends become unusable).
 //
 // Pinned points get a colored ring; `pins` is the full current list every
 // time (not incremental), computed by App from its selection set — so a
 // point that stops being pinned just isn't in the next call's array.
+
+import { familyOf } from './lang-families.js';
 
 const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
@@ -42,6 +46,8 @@ export class PointLayer {
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
     this._pins = [];
+    this._familyModeEnabled = true; // a view preference, not per-dataset — setPoints() below doesn't reset it
+    this._familyColorScale = null;
   }
 
   setPoints(points, baseXScale, baseYScale) {
@@ -50,9 +56,24 @@ export class PointLayer {
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
     this._pins = [];
-    this.points = points.map(p => ({ ...p, opacity: 1 }));
+    this.points = points.map(p => ({ ...p, opacity: 1, family: familyOf(p.lang) }));
+    const families = Array.from(new Set(this.points.map(p => p.family))).sort();
+    this._familyColorScale = d3.scaleOrdinal(families, d3.schemeTableau10);
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
+  }
+
+  // Family mode and the language filter are mutually exclusive views of
+  // color — switching modes re-triggers whatever opacity target is
+  // currently active (isolate group, if any, else the base mode) so the
+  // fade animates consistently with every other opacity change.
+  setFamilyColorMode(enabled) {
+    this._familyModeEnabled = enabled;
+    if (this._activeGroupKey !== null) {
+      this._animateTo(d => d.groupKey === this._activeGroupKey ? 1 : ISOLATED_OUT_OPACITY);
+    } else {
+      this._animateTo(d => this._baseOpacity(d));
+    }
   }
 
   // Pinned points get a colored ring; `pins` is the full current list every
@@ -104,22 +125,25 @@ export class PointLayer {
   }
 
   _baseOpacity(d) {
+    if (this._familyModeEnabled) return 1; // every point has a real family color, nothing to dim
     if (this._selectedLangs.size === 0) return 1;
     return this._selectedLangs.has(d.lang) ? 1 : FILTERED_OUT_OPACITY;
   }
 
   _colorFor(d) {
+    if (this._familyModeEnabled) return this._familyColorScale(d.family);
     return this._selectedLangs.has(d.lang) ? this._langColorScale(d.lang) : NEUTRAL_COLOR;
   }
 
-  // A point is drawn "on top" of the plain background if it's pinned or
-  // actively colored by the language filter — otherwise a gray point later
-  // in the array would sit on top of a colored/pinned point earlier in it
-  // (canvas paints in draw order, not by any notion of importance) and
-  // visually bury it. Two passes — background first, on-top points last —
-  // guarantee that never happens, regardless of the points' original order.
-  _isOnTop(d) {
-    return this._selectedLangs.has(d.lang) || this._pins.some(p => p.id === d.id);
+  _isPinned(d) {
+    return this._pins.some(p => p.id === d.id);
+  }
+
+  // Whether `d` is actively colored (as opposed to plain background gray)
+  // — every point in family mode, or the language-filter's selected subset
+  // otherwise.
+  _isColored(d) {
+    return this._familyModeEnabled || this._selectedLangs.has(d.lang);
   }
 
   // fisheyeFocus, when active, is {x, y, radius, distortion} in the same
@@ -131,10 +155,20 @@ export class PointLayer {
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
 
-    const background = [], foreground = [];
-    for (const d of this.points) (this._isOnTop(d) ? foreground : background).push(d);
+    // Three-tier z-order so canvas draw order (dataset order, not by any
+    // notion of importance) never buries something the user should be
+    // able to see: plain gray points first, colored ones next, pinned
+    // points always last (a pin should win even over a colored point at
+    // the same screen location).
+    const background = [], colored = [], pinned = [];
+    for (const d of this.points) {
+      if (this._isPinned(d)) pinned.push(d);
+      else if (this._isColored(d)) colored.push(d);
+      else background.push(d);
+    }
     for (const d of background) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
-    for (const d of foreground) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
+    for (const d of colored) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
+    for (const d of pinned) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
 
     for (const d of this._tokenOverlayEntries) {
       let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
