@@ -19,7 +19,7 @@ import { Tooltip } from './tooltip.js';
 
 // Fisheye lens size (screen pixels, constant regardless of zoom) and
 // strength — fixed for now rather than exposed as UI controls.
-const FISHEYE_RADIUS = 80;
+const FISHEYE_RADIUS = 180;
 const FISHEYE_DISTORTION = 3;
 
 export class ProjectionView {
@@ -47,6 +47,7 @@ export class ProjectionView {
     this._labelBy = 'text';
     this._fisheyeEnabled = false;
     this._fisheyeFocus = null;
+    this._drawRafPending = false;
 
     this.canvas.addEventListener('click', event => this._onCanvasClick(event));
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
@@ -129,8 +130,33 @@ export class ProjectionView {
     this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId, this._fisheyeFocus);
   }
 
+  // Coalesces redraws to at most one per animation frame. mousemove can
+  // fire far more often than the browser paints, and with the fisheye
+  // lens active every point's position is recomputed on every redraw
+  // (unlike a plain hover-highlight redraw, which is rare) — without this,
+  // the combination of high-frequency events and per-point work drops
+  // frames visibly wherever points are actually moving under the lens.
+  _requestDraw() {
+    if (this._drawRafPending) return;
+    this._drawRafPending = true;
+    requestAnimationFrame(() => {
+      this._drawRafPending = false;
+      this._draw();
+    });
+  }
+
   _updateAxes() {
     this.axes.update(this.pointLayer.baseXScale, this.pointLayer.baseYScale);
+  }
+
+  // Converts a mouse event's screen position into the same "local"
+  // (pre-zoom) coordinate space baseXScale/baseYScale output — i.e. what
+  // the quadtree is indexed in and what fisheyeFocus is expressed in.
+  _screenToLocal(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left - this.margin.left;
+    const screenY = event.clientY - rect.top - this.margin.top;
+    return this.axes.transform.invert([screenX, screenY]);
   }
 
   // Finds the point under the mouse (if any). The quadtree is indexed in
@@ -145,16 +171,6 @@ export class ProjectionView {
   // that as no-hit means such a click falls through to the background
   // handler, clearing the isolation instead of silently selecting something
   // hidden.
-  // Converts a mouse event's screen position into the same "local"
-  // (pre-zoom) coordinate space baseXScale/baseYScale output — i.e. what
-  // the quadtree is indexed in and what fisheyeFocus is expressed in.
-  _screenToLocal(event) {
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX = event.clientX - rect.left - this.margin.left;
-    const screenY = event.clientY - rect.top - this.margin.top;
-    return this.axes.transform.invert([screenX, screenY]);
-  }
-
   _pointAt(event) {
     const [x, y] = this._screenToLocal(event);
     const found = this.quadtree.find(x, y, 8 / this.axes.transform.k);
@@ -204,19 +220,14 @@ export class ProjectionView {
       const rect = this.el.getBoundingClientRect();
       this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(overlayHit[this._labelBy]));
       this.canvas.style.cursor = 'default';
-      if (this._hoveredId !== null || this._fisheyeEnabled) {
-        this._hoveredId = null;
-        this._draw();
-      }
+      this._hoveredId = null;
+      this._requestDraw();
       return;
     }
 
     const d = this._pointAt(event);
-    const hoveredId = d ? d.id : null;
-    if (hoveredId !== this._hoveredId || this._fisheyeEnabled) {
-      this._hoveredId = hoveredId;
-      this._draw();
-    }
+    this._hoveredId = d ? d.id : null;
+    this._requestDraw();
     if (d) {
       const rect = this.el.getBoundingClientRect();
       this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
