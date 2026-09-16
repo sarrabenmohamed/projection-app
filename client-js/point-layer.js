@@ -112,6 +112,16 @@ export class PointLayer {
     return this._selectedLangs.has(d.lang) ? this._langColorScale(d.lang) : NEUTRAL_COLOR;
   }
 
+  // A point is drawn "on top" of the plain background if it's pinned or
+  // actively colored by the language filter — otherwise a gray point later
+  // in the array would sit on top of a colored/pinned point earlier in it
+  // (canvas paints in draw order, not by any notion of importance) and
+  // visually bury it. Two passes — background first, on-top points last —
+  // guarantee that never happens, regardless of the points' original order.
+  _isOnTop(d) {
+    return this._selectedLangs.has(d.lang) || this._pins.some(p => p.id === d.id);
+  }
+
   // fisheyeFocus, when active, is {x, y, radius, distortion} in the same
   // "local" (pre-zoom) coordinate space as baseXScale/baseYScale output —
   // see ProjectionView._updateFisheyeFocus for how it's computed.
@@ -120,33 +130,12 @@ export class PointLayer {
     ctx.translate(margin.left, margin.top);
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
-    for (const d of this.points) {
-      let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
-      if (fisheyeFocus) {
-        const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
-        cx = fisheyeFocus.x + ox;
-        cy = fisheyeFocus.y + oy;
-      }
-      const hovered = d.id === hoveredId;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 5 / transform.k, 0, 2 * Math.PI);
-      ctx.globalAlpha = d.opacity * 0.8;
-      ctx.fillStyle = this._colorFor(d);
-      ctx.fill();
-      ctx.globalAlpha = d.opacity;
-      ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
-      ctx.strokeStyle = hovered ? '#333' : '#fff';
-      ctx.stroke();
-      const pin = this._pins.find(p => p.id === d.id);
-      if (pin) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
-        ctx.globalAlpha = d.opacity;
-        ctx.lineWidth = (pin.focused ? 2.6 : 1.8) / transform.k;
-        ctx.strokeStyle = pin.color;
-        ctx.stroke();
-      }
-    }
+
+    const background = [], foreground = [];
+    for (const d of this.points) (this._isOnTop(d) ? foreground : background).push(d);
+    for (const d of background) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
+    for (const d of foreground) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
+
     for (const d of this._tokenOverlayEntries) {
       let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
       if (fisheyeFocus) {
@@ -170,6 +159,34 @@ export class PointLayer {
     }
     ctx.restore();
     ctx.globalAlpha = 1;
+  }
+
+  _drawPoint(ctx, d, transform, hoveredId, fisheyeFocus) {
+    let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
+    if (fisheyeFocus) {
+      const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
+      cx = fisheyeFocus.x + ox;
+      cy = fisheyeFocus.y + oy;
+    }
+    const hovered = d.id === hoveredId;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5 / transform.k, 0, 2 * Math.PI);
+    ctx.globalAlpha = d.opacity * 0.8;
+    ctx.fillStyle = this._colorFor(d);
+    ctx.fill();
+    ctx.globalAlpha = d.opacity;
+    ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
+    ctx.strokeStyle = hovered ? '#333' : '#fff';
+    ctx.stroke();
+    const pin = this._pins.find(p => p.id === d.id);
+    if (pin) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
+      ctx.globalAlpha = d.opacity;
+      ctx.lineWidth = (pin.focused ? 2.6 : 1.8) / transform.k;
+      ctx.strokeStyle = pin.color;
+      ctx.stroke();
+    }
   }
 
   // Animates every point's opacity toward targetOpacityFn(d) — the canvas
