@@ -6,7 +6,6 @@
 import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
-import { SelectionPanel } from './selection-panel.js';
 import { LangFilter } from './lang-filter.js';
 import { readUrlState, writeUrlState } from './url-state.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
@@ -22,17 +21,6 @@ class App {
       { containerId: 'data-table' },
       {
         onRowClick: row => this.onSelectRow(row),
-        onToggleTranslations: point => this.onToggleTranslations(point),
-        onToggleTokens: point => this.onToggleTokens(point),
-        onToggleNeighbors: point => this.onToggleNeighbors(point),
-        onChangeNeighborsK: (point, k) => this.onChangeNeighborsK(point, k),
-      }
-    );
-    this.selectionPanel = new SelectionPanel(
-      { containerId: 'selection-panel-body' },
-      {
-        onFocusPin: id => this._focusPin(id),
-        onUnpin: point => this._togglePin(point),
         onToggleTranslations: point => this.onToggleTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleNeighbors: point => this.onToggleNeighbors(point),
@@ -87,8 +75,6 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('projection-panel'));
     document.getElementById('data-table-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
-    document.getElementById('selection-fullscreen-btn')
-      .addEventListener('click', () => this._toggleFullscreen('selection-panel'));
     document.getElementById('copy-link-button')
       .addEventListener('click', () => this._copyLink());
     this._initLayoutConfig();
@@ -149,8 +135,8 @@ class App {
   // leave #main empty with no way to get either back.
   _initLayoutConfig() {
     const STORAGE_KEY = 'projection-app-layout';
-    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel', selection: 'selection-panel' };
-    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table', selection: 'toggle-selection' };
+    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel' };
+    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table' };
 
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { saved = {}; }
@@ -193,7 +179,7 @@ class App {
   // before entering fullscreen (not just "show everything") — so
   // exiting fullscreen doesn't undo a layout-config choice made earlier.
   _toggleFullscreen(panelId) {
-    const ALL_PANEL_IDS = ['projection-panel', 'data-table-panel', 'selection-panel'];
+    const ALL_PANEL_IDS = ['projection-panel', 'data-table-panel'];
     const panel = document.getElementById(panelId);
     const turningOn = !panel.classList.contains('fullscreen');
 
@@ -333,7 +319,6 @@ class App {
     this.view.setTokenOverlays(overlaysByPin);
 
     this.table.setPins(pins);
-    this.selectionPanel.setPins(pins);
   }
 
   // Canvas points are always sentences — token overlay points aren't
@@ -390,14 +375,6 @@ class App {
     }
     this._syncPins();
     this._syncUrl();
-  }
-
-  // Changes which pin is "focused" (heavier canvas ring, highlighted row)
-  // without touching pin membership — the Selection panel's row click.
-  _focusPin(id) {
-    if (!this._selection.includes(id)) return;
-    this._focusedId = id;
-    this._syncPins();
   }
 
   onBackgroundClick() {

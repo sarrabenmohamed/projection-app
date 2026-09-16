@@ -1,8 +1,9 @@
 // Data table: sentence rows always, token rows only for whichever point
-// currently has its tokens shown. Selecting a sentence row reveals inline
-// action buttons (toggle translations / toggle tokens) directly in that
-// row — App drives all of this through the same selection state it drives
-// the canvas with, so table and canvas selection always agree.
+// currently has its tokens shown. A pin checkbox is each sentence row's
+// only pin control (clicking elsewhere on the row does nothing); a pinned
+// row reveals its Actions dropdown. App drives all of this through the
+// same selection state it drives the canvas with, so table and canvas
+// pinning always agree.
 
 import { renderActionsMenu } from './actions-menu.js';
 
@@ -49,6 +50,7 @@ export class DataTable {
         <table>
           <thead>
             <tr>
+              <th class="dt-pin-col"></th>
               <th data-key="id">ID</th>
               <th data-key="lang">Language</th>
               <th data-key="text">Text</th>
@@ -216,6 +218,7 @@ export class DataTable {
     if (pin) tr.style.setProperty('--pin-color', pin.color);
 
     tr.innerHTML = `
+      <td class="dt-pin-col"></td>
       <td>${escapeHtml(String(p.id))}</td>
       <td>${escapeHtml(p.lang)}</td>
       <td class="dt-text" title="${escapeHtml(p.text)}">${escapeHtml(p.text)}</td>
@@ -225,6 +228,14 @@ export class DataTable {
       <td></td>
       <td class="dt-actions-cell"></td>
     `;
+
+    const pinCheckbox = document.createElement('input');
+    pinCheckbox.type = 'checkbox';
+    pinCheckbox.className = 'dt-pin-checkbox';
+    pinCheckbox.checked = !!pin;
+    pinCheckbox.title = pin ? 'Unpin' : 'Pin';
+    pinCheckbox.addEventListener('change', e => { e.stopPropagation(); this._onRowClick({ ...p, type: 'sentence' }); });
+    tr.querySelector('.dt-pin-col').appendChild(pinCheckbox);
 
     if (pin) {
       const actionsCell = tr.querySelector('.dt-actions-cell');
@@ -237,7 +248,6 @@ export class DataTable {
       }, 'table'));
     }
 
-    tr.addEventListener('click', () => this._onRowClick({ ...p, type: 'sentence' }));
     return tr;
   }
 
@@ -246,6 +256,7 @@ export class DataTable {
     const highlighted = t.id === this._highlightedRowId;
     tr.className = 'dt-row dt-row-token' + (highlighted ? ' dt-row-highlighted' : '');
     tr.innerHTML = `
+      <td></td>
       <td>${escapeHtml(t.id)}</td>
       <td>${escapeHtml(t.lang)}</td>
       <td class="dt-text" title="${escapeHtml(t.text)}">${escapeHtml(t.text)}</td>
@@ -263,6 +274,7 @@ export class DataTable {
     const tr = document.createElement('tr');
     tr.className = 'dt-row dt-row-neighbor';
     tr.innerHTML = `
+      <td></td>
       <td>${escapeHtml(String(n.id))}</td>
       <td>${escapeHtml(n.lang)}</td>
       <td class="dt-text" title="${escapeHtml(n.text ?? '')}">${escapeHtml(n.text ?? '')}</td>
