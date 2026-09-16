@@ -18,6 +18,7 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #lang-filter-controls { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; }
 #lang-filter-controls label { display: block; font-size: 0.8em; color: #555; margin-bottom: 4px; }
 #lang-search { width: 100%; font-size: 0.8em; padding: 4px 6px; }
+#lang-search:disabled { background: #eee; color: #999; }
 
 #lang-suggestions { display: none; border: 1px solid #ddd; border-top: none; background: #fff; max-height: 160px; overflow-y: auto; }
 .lang-suggestion-item { padding: 4px 8px; font-size: 0.8em; cursor: pointer; }

@@ -69,6 +69,12 @@ class App {
       .addEventListener('change', e => { this.view.setLabelBy(e.target.value); this._syncUrl(); });
     document.getElementById('fisheye-toggle')
       .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
+    document.getElementById('family-color-toggle')
+      .addEventListener('change', e => {
+        this.view.setFamilyColorMode(e.target.checked);
+        document.getElementById('lang-search').disabled = e.target.checked;
+      });
+    document.getElementById('lang-search').disabled = document.getElementById('family-color-toggle').checked;
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
     document.getElementById('projection-fullscreen-btn')
