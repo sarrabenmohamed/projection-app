@@ -122,6 +122,21 @@ export class DataTable {
     this._render();
   }
 
+  isShowSelectedOnly() {
+    return this._showSelectedOnly;
+  }
+
+  // Lets App programmatically override the checkbox (e.g. auto-turning it
+  // back off if the pinned set becomes empty while it's on — see
+  // App._syncPins) without going through _onToggleShowSelectedOnly again,
+  // which would just call back into the same App method.
+  setShowSelectedOnly(enabled) {
+    this._showSelectedOnly = enabled;
+    this.container.querySelector('.dt-show-selected').checked = enabled;
+    this._page = 0;
+    this._render();
+  }
+
   // pins: Array<{point, color, focused, detail}> — the full current set,
   // every time. Pages/scrolls to whichever pin is focused so a fresh pin
   // (or an explicit focus change) is always visible; harmless no-op if

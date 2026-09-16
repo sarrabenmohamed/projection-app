@@ -5,7 +5,7 @@ static frontend: uvicorn server:app --port 8500
 
 Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
-    GET  /points                  point metadata only, no vectors.
+    GET  /points                  point metadata only, no vectors (includes each point's language family).
     GET  /project                 2D coords for all points (?method=umap|tsne&metric=cosine|euclidean|manhattan).
     GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric= must match).
     GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
@@ -58,6 +58,32 @@ DEFAULT_LANGUAGES = (
 DEFAULT_N_SENTENCES = 200
 DEFAULT_MODEL = "xlm-roberta-base"
 DEFAULT_POOLING = "mean"
+
+# Maps FLORES-200 language codes to linguistic families, for the frontend's
+# default "color by language family" mode. Unknown codes (e.g. from an
+# uploaded dataset with its own language codes) fall back to a shared
+# "Other" bucket rather than going uncolored.
+LANG_FAMILY = {
+    "eng_Latn": "Germanic", "deu_Latn": "Germanic", "nld_Latn": "Germanic", "swe_Latn": "Germanic", "dan_Latn": "Germanic",
+    "spa_Latn": "Romance", "fra_Latn": "Romance", "por_Latn": "Romance", "ita_Latn": "Romance", "ron_Latn": "Romance",
+    "zho_Hans": "Sino-Tibetan", "zho_Hant": "Sino-Tibetan", "mya_Mymr": "Sino-Tibetan",
+    "jpn_Jpan": "Japonic",
+    "kor_Hang": "Koreanic",
+    "rus_Cyrl": "Slavic", "pol_Latn": "Slavic", "ukr_Cyrl": "Slavic", "ces_Latn": "Slavic",
+    "tur_Latn": "Turkic",
+    "vie_Latn": "Austroasiatic", "khm_Khmr": "Austroasiatic",
+    "ind_Latn": "Austronesian",
+    "tha_Thai": "Kra-Dai",
+    "hun_Latn": "Uralic", "fin_Latn": "Uralic",
+    "heb_Hebr": "Afroasiatic", "arb_Arab": "Afroasiatic", "amh_Ethi": "Afroasiatic",
+    "pes_Arab": "Indo-Iranian", "urd_Arab": "Indo-Iranian", "hin_Deva": "Indo-Iranian", "ben_Beng": "Indo-Iranian",
+    "guj_Gujr": "Indo-Iranian", "pan_Guru": "Indo-Iranian", "sin_Sinh": "Indo-Iranian",
+    "tam_Taml": "Dravidian", "tel_Telu": "Dravidian", "mal_Mlym": "Dravidian", "kan_Knda": "Dravidian",
+}
+
+
+def family_of(lang_code: str) -> str:
+    return LANG_FAMILY.get(lang_code, "Other")
 
 app = FastAPI()
 app.add_middleware(
@@ -193,6 +219,7 @@ def get_points() -> dict:
         "points": [
             {
                 "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
+                "family": family_of(p["lang"]),
                 "hasTokens": p.get("tokenVectors") is not None,
                 "tokenTexts": [t["token"] for t in p["tokenVectors"]] if p.get("tokenVectors") is not None else None,
             }

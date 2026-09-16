@@ -74,6 +74,7 @@ export class ProjectionView {
   clearHighlight() { this.pointLayer.clear(); }
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
   setFamilyColorMode(enabled) { this.pointLayer.setFamilyColorMode(enabled); }
+  getFamilyLegend() { return this.pointLayer.getFamilyLegend(); }
   setPinnedPoints(pins) { this.pointLayer.setPinnedPoints(pins); }
   setShowPinnedOnly(enabled) { this.pointLayer.setShowPinnedOnly(enabled); }
   setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
