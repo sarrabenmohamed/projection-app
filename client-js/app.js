@@ -25,6 +25,7 @@ class App {
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleNeighbors: point => this.onToggleNeighbors(point),
         onChangeNeighborsK: (point, k) => this.onChangeNeighborsK(point, k),
+        onToggleShowSelectedOnly: enabled => this.view.setShowPinnedOnly(enabled),
       }
     );
     this.langFilter = new LangFilter(

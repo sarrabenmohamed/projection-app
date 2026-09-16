@@ -75,6 +75,7 @@ export class ProjectionView {
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
   setFamilyColorMode(enabled) { this.pointLayer.setFamilyColorMode(enabled); }
   setPinnedPoints(pins) { this.pointLayer.setPinnedPoints(pins); }
+  setShowPinnedOnly(enabled) { this.pointLayer.setShowPinnedOnly(enabled); }
   setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
   setLabelBy(field) { this._labelBy = field; }
 
@@ -166,20 +167,17 @@ export class ProjectionView {
   // first; the hit radius is likewise scaled by 1/k so it represents the same
   // on-screen distance at any zoom level.
   //
-  // While a group is isolated, everything outside it is invisible (opacity
-  // 0) — the quadtree still spatially indexes those points, so without this
-  // check a click/hover could land on a point the user can't see. Treating
+  // While an isolate (translations group, or "show pinned only") is
+  // active, everything outside it is invisible (opacity 0) — the
+  // quadtree still spatially indexes those points, so without this check
+  // a click/hover could land on a point the user can't see. Treating
   // that as no-hit means such a click falls through to the background
-  // handler, clearing the isolation instead of silently selecting something
-  // hidden.
+  // handler, clearing the isolation instead of silently selecting
+  // something hidden.
   _pointAt(event) {
     const [x, y] = this._screenToLocal(event);
     const found = this.quadtree.find(x, y, 8 / this.axes.transform.k);
-
-    const activeGroupKey = this.pointLayer.getActiveGroupKey();
-    if (activeGroupKey !== null && found && found.groupKey !== activeGroupKey) {
-      return undefined;
-    }
+    if (found && this.pointLayer.isIsolatedOut(found)) return undefined;
     return found;
   }
 
