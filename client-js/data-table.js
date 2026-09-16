@@ -23,13 +23,14 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeNeighborsK }) {
+  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeNeighborsK, onToggleShowSelectedOnly }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onToggleTranslations = onToggleTranslations;
     this._onToggleTokens = onToggleTokens;
     this._onToggleNeighbors = onToggleNeighbors;
     this._onChangeNeighborsK = onChangeNeighborsK;
+    this._onToggleShowSelectedOnly = onToggleShowSelectedOnly;
 
     this.points = [];
     this._pins = []; // Array<{point, color, focused, detail}>
@@ -85,6 +86,7 @@ export class DataTable {
       this._showSelectedOnly = e.target.checked;
       this._page = 0;
       this._render();
+      this._onToggleShowSelectedOnly(e.target.checked);
     });
     this.container.querySelectorAll('th[data-key]').forEach(th => {
       th.addEventListener('click', () => this._sortBy(th.dataset.key));

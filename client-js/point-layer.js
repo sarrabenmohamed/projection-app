@@ -48,6 +48,7 @@ export class PointLayer {
     this._pins = [];
     this._familyModeEnabled = true; // a view preference, not per-dataset — setPoints() below doesn't reset it
     this._familyColorScale = null;
+    this._showPinnedOnly = false;
   }
 
   setPoints(points, baseXScale, baseYScale) {
@@ -56,6 +57,7 @@ export class PointLayer {
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
     this._pins = [];
+    this._showPinnedOnly = false;
     this.points = points.map(p => ({ ...p, opacity: 1, family: familyOf(p.lang) }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
     this._familyColorScale = d3.scaleOrdinal(families, d3.schemeTableau10);
@@ -65,23 +67,31 @@ export class PointLayer {
 
   // Family mode and the language filter are mutually exclusive views of
   // color — switching modes re-triggers whatever opacity target is
-  // currently active (isolate group, if any, else the base mode) so the
-  // fade animates consistently with every other opacity change.
+  // currently active so the fade animates consistently with every other
+  // opacity change.
   setFamilyColorMode(enabled) {
     this._familyModeEnabled = enabled;
-    if (this._activeGroupKey !== null) {
-      this._animateTo(d => d.groupKey === this._activeGroupKey ? 1 : ISOLATED_OUT_OPACITY);
-    } else {
-      this._animateTo(d => this._baseOpacity(d));
-    }
+    this._animateTo(d => this._opacityTarget(d));
+  }
+
+  // Isolates the canvas to just the pinned points — takes precedence over
+  // an active translations isolate (see _opacityTarget), matching
+  // DataTable's own show_selected filter's narrowing behavior.
+  setShowPinnedOnly(enabled) {
+    this._showPinnedOnly = enabled;
+    this._animateTo(d => this._opacityTarget(d));
   }
 
   // Pinned points get a colored ring; `pins` is the full current list every
   // time (not incremental), computed by App from its selection set — so a
   // point that stops being pinned just isn't in the next call's array.
+  // Which points count as "pinned" can itself affect who's isolated-out
+  // (see setShowPinnedOnly), so this re-triggers the opacity animation
+  // rather than just a plain redraw whenever that mode is active.
   setPinnedPoints(pins) {
     this._pins = pins; // Array<{id, color, focused}>
-    this._onChange();
+    if (this._showPinnedOnly) this._animateTo(d => this._opacityTarget(d));
+    else this._onChange();
   }
 
   // Token points for pinned sentences, embedded into the
@@ -117,11 +127,7 @@ export class PointLayer {
   setLangFilter(langs) {
     this._selectedLangs = new Set(langs);
     this._langColorScale = d3.scaleOrdinal([...this._selectedLangs].sort(), d3.schemeTableau10);
-    if (this._activeGroupKey !== null) {
-      this._animateTo(d => d.groupKey === this._activeGroupKey ? 1 : ISOLATED_OUT_OPACITY);
-    } else {
-      this._animateTo(d => this._baseOpacity(d));
-    }
+    this._animateTo(d => this._opacityTarget(d));
   }
 
   _baseOpacity(d) {
@@ -144,6 +150,30 @@ export class PointLayer {
   // otherwise.
   _isColored(d) {
     return this._familyModeEnabled || this._selectedLangs.has(d.lang);
+  }
+
+  _isolateActive() {
+    return this._activeGroupKey !== null || this._showPinnedOnly;
+  }
+
+  // "Show pinned only" takes top precedence over a translations isolate
+  // (narrows rather than unions) — matching DataTable's own show_selected
+  // filter, which likewise narrows whatever rows the translations view
+  // was already showing down to just the pinned ones, not the other way
+  // around. With neither active, falls back to the base coloring-mode
+  // opacity (family mode: always 1; language-filter mode: dim non-
+  // selected languages).
+  _opacityTarget(d) {
+    if (this._showPinnedOnly) return this._isPinned(d) ? 1 : ISOLATED_OUT_OPACITY;
+    if (this._activeGroupKey !== null) return d.groupKey === this._activeGroupKey ? 1 : ISOLATED_OUT_OPACITY;
+    return this._baseOpacity(d);
+  }
+
+  // Whether `d` is currently faded to fully invisible by an active
+  // isolate — used by ProjectionView to keep hit-testing off points the
+  // user can't see (the quadtree still spatially indexes them).
+  isIsolatedOut(d) {
+    return this._isolateActive() && this._opacityTarget(d) === ISOLATED_OUT_OPACITY;
   }
 
   // fisheyeFocus, when active, is {x, y, radius, distortion} in the same
@@ -252,17 +282,17 @@ export class PointLayer {
   // Isolate every point in the same group as the clicked one (same groupKey)
   // — ex4's highlightNeighborhood, with "neighbour" redefined as "same
   // sentence, other language" instead of graph-adjacency — by fading
-  // everything else out completely. Wins over the language filter's base
-  // state while active; clear()/restoreActive() below return to that base
-  // state rather than to full opacity.
+  // everything else out completely (unless it's also pinned while "show
+  // pinned only" is active — see _opacityTarget). clear()/restoreActive()
+  // below return to that base state rather than to full opacity.
   highlightGroup(groupKey) {
     this._activeGroupKey = groupKey;
-    this._animateTo(d => d.groupKey === groupKey ? 1 : ISOLATED_OUT_OPACITY);
+    this._animateTo(d => this._opacityTarget(d));
   }
 
   clear() {
     this._activeGroupKey = null;
-    this._animateTo(d => this._baseOpacity(d));
+    this._animateTo(d => this._opacityTarget(d));
   }
 
   restoreActive() {
@@ -271,12 +301,5 @@ export class PointLayer {
     } else {
       this.clear();
     }
-  }
-
-  // So the owner can tell whether an isolation is active without reaching
-  // into a private field — used to keep hit-testing off points that are
-  // currently invisible (opacity 0, isolated out).
-  getActiveGroupKey() {
-    return this._activeGroupKey;
   }
 }
