@@ -1,15 +1,16 @@
 # Selection state machine
 
-Reference for how the pinned-point set, translations-isolate, and the
-per-pin token/neighbor overlays interact — all owned by `App`
-(`client-js/app.js`) and mirrored into `DataTable`/`SelectionPanel`/
-`ProjectionView`. Written down once so future features have a
-known-correct baseline to extend rather than reverse-engineer.
+Reference for how the pinned-point set, translations-isolate, the
+per-pin token/neighbor overlays, and the two canvas-coloring modes
+interact — all owned by `App` (`client-js/app.js`) and mirrored into
+`DataTable`/`ProjectionView`. Written down once so future features have
+a known-correct baseline to extend rather than reverse-engineer.
 
-This describes the **multi-pin selection set** model: clicking a point
-toggles its membership in the set (click = pin, click again = unpin)
-rather than "select" and "pin" being two different concepts. One point
-can be pinned, or several, with symmetric treatment — no special-casing
+This describes the **multi-pin selection set** model: a checkbox in each
+sentence row of the data table toggles that point's membership in the
+set (check = pin, uncheck = unpin) — the checkbox is each row's *only*
+pin control; clicking elsewhere on the row does nothing. One point can
+be pinned, or several, with symmetric treatment — no special-casing
 between "the first one" and "the rest".
 
 ## State
@@ -19,12 +20,11 @@ Four pieces of state, all on `App`:
 - `_selection` — an ordered array of pinned point ids (order = pin
   order; array, not `Set`, so "last pinned" is cheap to find and
   iteration order is stable for rendering/coloring).
-- `_focusedId` — the id last clicked/pinned, or whichever pin the
-  Selection panel was last used to focus; always a member of
+- `_focusedId` — the id most recently pinned; always a member of
   `_selection`, or `null` when the set is empty. Purely a rendering hint
-  (which ring style to use, which table row to page/scroll to) — it does
-  not gate which rows get an `Actions ▾` dropdown; every pinned row gets
-  one regardless of focus.
+  (heavier canvas ring, highlighted table row) — it does not gate which
+  rows get an `Actions ▾` dropdown; every pinned row gets one regardless
+  of focus.
 - `_detailState` — `Map<id, { translations, tokens, tokenPoints,
   neighbors, neighborsK, neighborRows }>`. An entry is created (all
   flags off, `neighborsK: 5`) when a point is first pinned via
@@ -32,9 +32,9 @@ Four pieces of state, all on `App`:
   for a point that isn't currently pinned.
 - `_pinColors` — `Map<id, color>` assigning each currently-pinned point
   a color from a fixed 10-color palette (`d3.schemeTableau10`,
-  module-level `PIN_PALETTE` in `app.js` — distinct from the language
-  filter's own color scale; a pin and a language-filter selection are two
-  independent color systems that can coexist), assigned by pin order and
+  module-level `PIN_PALETTE` in `app.js` — a separate color system from
+  both canvas coloring modes below, so a pin's ring color never
+  conflicts with a point's fill color), assigned by pin order and
   cycling if more than 10 points are pinned at once.
 
 `ProjectionView`/`PointLayer` mirror the pinned set via
@@ -42,18 +42,18 @@ Four pieces of state, all on `App`:
 point, in that pin's color; the focused pin's ring is drawn with a
 heavier stroke) and `setTokenOverlays(Map<pinId, points[]>)` (each pin's
 token diamonds render in that pin's color instead of a single fixed
-color). `DataTable`/`SelectionPanel` mirror it via `setPins(Array<{point,
-color, focused, detail}>)`. `App._syncPins()` rebuilds all three from
+color). `DataTable` mirrors it via `setPins(Array<{point, color,
+focused, detail}>)`. `App._syncPins()` rebuilds both from
 `_selection`/`_focusedId`/`_detailState`/`_pinColors` from scratch on
-every change, rather than patching incrementally, so none of them can
-drift out of sync with the source of truth.
+every change, rather than patching incrementally, so neither can drift
+out of sync with the source of truth.
 
 ## Transitions
 
-**Toggling a pin** (`onCanvasClickPoint` from a canvas click, or
-`onSelectRow` from a data-table row click on a sentence row, both routed
-through `_togglePin`; a neighbor-row click in the table resolves back to
-the full point object first, then also calls `_togglePin`):
+**Toggling a pin** (`DataTable`'s pin checkbox, `onSelectRow` from a
+neighbor-row click — which resolves back to the full point object
+first, then also calls `_togglePin` — or a canvas point click via
+`onCanvasClickPoint`; all three route through `_togglePin`):
 
 - Not currently pinned: assign it the next color in `PIN_PALETTE`, push
   its id onto `_selection`, create its `_detailState` entry with every
@@ -69,32 +69,28 @@ the full point object first, then also calls `_togglePin`):
   moves to the new last item in `_selection`, or `null` if the set is
   now empty.
 - Either way, `_syncPins()` and `_syncUrl()` run at the end, so canvas
-  rings/overlays, the table, the Selection panel, and the URL's `ids=`
-  param all stay current.
+  rings/overlays, the table, and the URL's `ids=` param all stay
+  current.
+
+**Clicking anywhere else on a sentence row** (not the pin checkbox):
+does nothing — no pin toggle, no highlight. This is a deliberate
+simplification once the Selection panel (which used to give plain row
+clicks a "focus without pinning" meaning) was removed — see "Removed:
+Selection panel" below.
 
 **Clicking a token row** (`onSelectRow` with `row.type === 'token'`):
-unchanged from the single-selection model — routes to
-`table.highlightRow(id)`, which highlights that row only and never
-touches `_selection`/`_detailState`. This is the one interaction that
-never changes pin membership.
+routes to `table.highlightRow(id)`, which highlights that row only and
+never touches `_selection`/`_detailState`. This is the one row-click
+interaction that still does something, since token rows have no pin
+checkbox of their own.
 
 **Background click** (`onBackgroundClick` — canvas empty space):
 clears the entire selection — every pinned id is removed from
 `_selection`, every `_detailState`/`_pinColors` entry is deleted,
 `_focusedId` resets to `null`, and any active translations isolate is
-cleared on the canvas. (Clicking an already-pinned point again still
-just unpins that one point via the normal toggle-off path above — it
-doesn't go through this method.)
-
-**Focusing without unpinning** (`_focusPin(id)` — the Selection panel's
-row click, wired as `onFocusPin`): moves `_focusedId` to `id` if it's
-currently pinned, then calls `_syncPins()`; does not touch `_selection`
-or `_detailState` at all. This is the Selection panel's deliberate
-exception to "click toggles the pin" — the panel is the one place in the
-app where an accidental click on a row shouldn't cost you your working
-set, so only its explicit `×` button (wired as `onUnpin`, which just
-calls `_togglePin`) unpins from there. Clicking the same point again on
-the canvas, or its row in the full data table, still toggles as usual.
+cleared on the canvas. (Clicking an already-pinned point again on the
+canvas still just unpins that one point via the normal toggle-off path
+above — it doesn't go through this method.)
 
 **Show/Hide translations** (`onToggleTranslations(point)`): toggles
 `_detailState.get(point.id).translations`. Guarded by `_selection.length
@@ -110,9 +106,8 @@ the one flag in `_detailState` that is **not** independent per pin —
 by construction there is never more than one pinned point with
 `translations: true` at a time (enforced by the guard above plus the
 auto-clear on 1 → 2 pin described earlier), so `PointLayer`'s
-`_activeGroupKey`/`highlightGroup()`/`getActiveGroupKey()` stay a single
-exclusive piece of state, unchanged from the old single-selection model
-— there is never a second group competing to be isolated.
+`_activeGroupKey`/`highlightGroup()` stay a single exclusive piece of
+state — there is never a second group competing to be isolated.
 
 **Show/Hide tokens** (`onToggleTokens(point)`): toggles
 `_detailState.get(point.id).tokens`/`tokenPoints`, independently per
@@ -147,48 +142,112 @@ auto-switch case above, the only deliberate exception.
 `_selection`/`_detailState`:
 - The **label-on-hover** dropdown (`view.setLabelBy`) — only changes
   what the tooltip shows.
-- The **language filter** (`view.setLangFilter`) — only changes point
-  colors/opacity; a completely separate color system from pin colors.
-- Table search, sort, and pagination — if a pinned/focused row scrolls
-  out of the current filtered/sorted page, its `Actions ▾` dropdown
-  simply isn't rendered until you navigate back to it; the underlying
-  `_detailState` entry is untouched and the row picks its rendering back
-  up correctly once visible again.
+- The **fisheye lens** toggle/hover-tracking (`view.setFisheyeEnabled`)
+  — purely a visual position distortion on the canvas; never affects
+  hit-testing, which always uses real, undistorted positions.
+
+## Two canvas-coloring modes (mutually exclusive)
+
+`PointLayer._familyModeEnabled` (default `true`) picks between:
+
+- **Family mode** (default): every point is colored by its language's
+  linguistic family — `client-js/lang-families.js`'s `familyOf(langCode)`
+  maps FLORES-200's ~40 codes into ~14 families (unknown codes, e.g.
+  from an uploaded dataset, fall into a shared `"Other"` bucket), and
+  `PointLayer.setPoints()` builds a `d3.scaleOrdinal` color scale from
+  whatever distinct families are actually present in the loaded data.
+  Every point is fully opaque; there's no "background gray" tier.
+- **Language-filter mode**: the pre-existing behavior. Every point is
+  neutral gray (`NEUTRAL_COLOR`) by default; only languages explicitly
+  selected via the sidebar's language filter get a real color
+  (`_langColorScale`, built fresh from just the selected subset), and
+  everything else dims to `FILTERED_OUT_OPACITY`.
+
+The sidebar's `#family-color-toggle` checkbox (default checked) drives
+`view.setFamilyColorMode(enabled)`; `App` also disables/enables
+`#lang-search` alongside it, since the language filter has no visible
+effect while family mode is active. Both modes read/write the same
+`_colorFor(d)`/`_baseOpacity(d)` methods — switching modes just changes
+which branch they take, and re-triggers the opacity animation so the
+switch fades rather than snaps.
+
+## Canvas z-order
+
+`PointLayer.draw()` stratifies every point into three tiers before
+drawing, regardless of their order in the dataset array (canvas paints
+in draw order, so a plain point drawn after a colored/pinned one at the
+same screen location would otherwise bury it):
+
+1. **Background** — plain, uncolored points (only reachable in
+   language-filter mode; family mode has no background tier).
+2. **Colored** — actively colored points (every point in family mode,
+   or the language filter's selected subset otherwise).
+3. **Pinned** — always drawn last, on top of everything else, even a
+   colored point at the same location.
+
+Token overlay diamonds are drawn in their own pass after all three
+tiers, unaffected by this stratification (they already always render on
+top by virtue of being drawn last).
+
+## Two isolate reasons, one precedence rule
+
+Two independent things can fade the canvas down to a subset:
+`PointLayer._activeGroupKey` (an active translations isolate) and
+`PointLayer._showPinnedOnly` (the data table's "Show selected"
+checkbox, wired through `App`/`ProjectionView.setShowPinnedOnly`). They
+are **not** combined by union — `_opacityTarget(d)` gives
+`_showPinnedOnly` top precedence, narrowing down to just the pinned
+points even if a translations group is also active, matching how
+`DataTable`'s own `show_selected` filter already narrows whatever rows
+the translations view was showing down to just the pinned ones (see
+"Data table changes" below). With neither isolate active, opacity falls
+back to whichever coloring mode's base opacity applies.
+
+`ProjectionView._pointAt`'s hit-testing guard generalizes to
+`PointLayer.isIsolatedOut(d)` — true whenever `d`'s target opacity would
+currently be `ISOLATED_OUT_OPACITY` for either reason — so a click on a
+point that's invisible for *either* isolate reason correctly falls
+through to the background-click handler instead of silently pinning
+something the user can't see.
 
 ## `Actions ▾` dropdown
 
 One shared component (`client-js/actions-menu.js`'s `renderActionsMenu`,
 a render-a-dropdown-for-this-point-id function, not a class with its own
 selection state — `App`'s `_detailState` is the single source of truth
-it reads from and calls back into) used identically by `DataTable` and
-`SelectionPanel`. One `Actions ▾` button per pinned row opens a
-checklist popover: Translations, Tokens (omitted if `!point.hasTokens`),
-Neighbors (with an inline `k` input), a divider, and a disabled
-"Configure…" placeholder reserving the menu shape for a future holistic
-per-point settings panel. The dropdown stays open across multiple clicks
-inside it (`openMenuId` module-level state in `actions-menu.js`) —
-closing only on an outside click or Escape
+it reads from and calls back into). One `Actions ▾` button per pinned
+row opens a checklist popover: Translations, Tokens (omitted if
+`!point.hasTokens`), Neighbors (with an inline `k` input), a divider,
+and a disabled "Configure…" placeholder reserving the menu shape for a
+future holistic per-point settings panel. The dropdown stays open
+across multiple clicks inside it (`openMenuId` module-level state in
+`actions-menu.js`) — closing only on an outside click or Escape
 (`installActionsMenuOutsideClickHandler`, installed once in
 `App.init()`) — so toggling more than one action doesn't require
 reopening it each time. "Translations" is greyed out
-(`aria-disabled`-equivalent styling plus a tooltip) whenever
+(`actions-menu-disabled` styling plus a tooltip) whenever
 `_selection.length !== 1`, matching the guard in `onToggleTranslations`
 above.
 
 ## Data table changes
 
+- A pin checkbox (`.dt-pin-checkbox`) is the leftmost column of every
+  sentence row — the row's only pin control (see "Toggling a pin"
+  above).
 - Every row currently in `_selection` gets an `Actions ▾` dropdown
   (previously only the single selected row did) — potentially several
   visible per page.
 - Row highlight uses that point's pin color instead of a single fixed
   selected-row color.
 - The `dt-show-selected` checkbox ("Show selected") in the `dt-top` bar
-  sets `_showSelectedOnly`*, which makes `_visibleRows()` additionally
+  sets `_showSelectedOnly`, which makes `_visibleRows()` additionally
   filter down to whatever's in `DataTable`'s own mirrored `_pins` array
   (`const pinnedIds = new Set(this._pins.map(p => p.point.id)); rows =
   rows.filter(p => pinnedIds.has(p.id));` — `DataTable` never reads
   `App._selection` directly, only the `_pins` snapshot `setPins()` last
-  handed it), combined with the existing search filter by AND.
+  handed it), combined with the existing search filter by AND. The same
+  checkbox also drives the canvas isolate described above via
+  `onToggleShowSelectedOnly`.
 - Translations keep the table's whole-table group filter, unchanged:
   `_translationsActivePin()` still makes `_visibleRows()` collapse to
   just that one group while active. This stays correct precisely
@@ -196,33 +255,23 @@ above.
   there's never a second group that could also want the table filtered
   to it.
 
-\* the checkbox is internally still referred to by its original
-`show_selected` name in the design doc and README.
+## Removed: Selection panel
 
-## Selection panel
-
-A fourth toggleable view (`client-js/selection-panel.js`'s
-`SelectionPanel`, `#selection-panel` in the layout, participating in the
-layout-config panel via its own `toggle-selection` checkbox, same
-localStorage persistence shape as the other panels). Lists every entry
-in `_selection`, in pin order, as a simple non-paginated,
-non-searchable list — bounded by how many points a person will
-realistically pin, unlike the full dataset. Each row shows a color
-swatch matching the point's canvas ring, its id/lang/text, the same
-shared `Actions ▾` dropdown, and an explicit `×` button. See "Focusing
-without unpinning" above for the panel's one behavioral exception:
-clicking a row focuses it (`_focusPin`) without unpinning; only `×`
-(`onUnpin`, i.e. `_togglePin`) removes it from the set.
+An earlier iteration had a fourth toggleable view (`SelectionPanel`)
+listing every pinned point, with its own "click focuses without
+unpinning, only × unpins" exception. It's been removed entirely —
+pinning now lives exclusively in the data table's checkbox column, with
+no separate focus-vs-unpin distinction to maintain. `App._focusPin` and
+the panel's layout-config/fullscreen wiring were deleted along with it.
 
 ## Known asymmetry (intentional)
 
 A canvas click can only ever pin/unpin a **sentence** point — token
 overlay points are hoverable but not clickable on canvas
 (`ProjectionView._onCanvasClick` checks `_overlayPointAt` first and
-returns early, unchanged from the single-selection model). Pinning a
-*token* point is not possible from either canvas or table; clicking a
-token row in the table only highlights it (see "Clicking a token row"
-above).
+returns early). Pinning a *token* point is not possible from either
+canvas or table; clicking a token row in the table only highlights it
+(see "Clicking a token row" above).
 
 ## URL state
 
