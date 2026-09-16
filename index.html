@@ -56,6 +56,7 @@
         <option value="text">Text</option>
         <option value="id">ID</option>
         <option value="lang">Language</option>
+        <option value="family">Language family</option>
       </select>
       <label><input type="checkbox" id="fisheye-toggle"> Fisheye lens (hover)</label>
     </div>
@@ -65,6 +66,7 @@
 
     <div id="lang-filter-controls">
       <label><input type="checkbox" id="family-color-toggle" checked> Color by language family</label>
+      <div id="family-legend"></div>
       <label for="lang-search">Filter languages:</label>
       <input type="text" id="lang-search" placeholder="Type to search...">
       <div id="lang-suggestions"></div>
@@ -82,6 +84,7 @@
         <div id="projection-hint">Loading embeddings and running UMAP...</div>
       </div>
     </div>
+    <div id="data-table-resize-handle" title="Drag to resize"></div>
     <div id="data-table-panel" class="view-panel">
       <div class="view-header">
         <span class="view-title">Data Table</span>

@@ -68,6 +68,21 @@ def test_points_endpoint_reports_has_tokens(client):
     assert by_id["en-1"]["hasTokens"] is True
 
 
+def test_points_endpoint_reports_language_family(client):
+    res = client.get("/points")
+    body = res.json()
+    by_id = {p["id"]: p for p in body["points"]}
+    # SAMPLE_DATASET's "en"/"de" codes aren't real FLORES-200 codes, so they
+    # fall back to the shared "Other" bucket rather than a real family.
+    assert by_id["en-0"]["family"] == "Other"
+
+
+def test_family_of_maps_known_flores_codes():
+    assert server.family_of("eng_Latn") == "Germanic"
+    assert server.family_of("fra_Latn") == "Romance"
+    assert server.family_of("not-a-real-code") == "Other"
+
+
 def test_points_endpoint_reports_token_texts(client):
     res = client.get("/points")
     body = res.json()

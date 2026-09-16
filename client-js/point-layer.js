@@ -4,7 +4,9 @@
 //
 // Two coloring modes, mutually exclusive (see setFamilyColorMode):
 // - Family mode (default): every point is colored by its language's
-//   linguistic family (lang-families.js) — always on, no filtering.
+//   linguistic family — always on, no filtering. `family` is a field the
+//   backend already attaches to every point (server.py's family_of()),
+//   not something this class computes.
 // - Language-filter mode: the pre-existing behavior. Every point is
 //   neutral gray by default; only languages explicitly selected via the
 //   language filter get a real color, and everything else dims to
@@ -16,17 +18,22 @@
 // time (not incremental), computed by App from its selection set — so a
 // point that stops being pinned just isn't in the next call's array.
 
-import { familyOf } from './lang-families.js';
-
 const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
 const ISOLATED_OUT_OPACITY = 0;
+const POINT_RADIUS = 5; // local-unit render radius before the 1/transform.k scale-compensation
+const FISHEYE_RELAX_ITERATIONS = 4;
 
 // Circular "magnifying glass" distortion: a point at offset (dx, dy) from
 // the lens focus, within `radius`, is pushed further from the focus (k > 1
 // near the center) while points near the edge of the lens compress back
 // toward their real position (k -> 1 exactly at d = radius, so there's no
 // visible seam where the lens ends). Points beyond `radius` are untouched.
+//
+// This alone can't prevent two points from still overlapping after
+// magnification: two points equidistant from the focus get pushed by the
+// identical factor k, so they stay exactly as overlapped, just farther
+// from center. See _computeFisheyePositions for the pass that fixes that.
 function _fisheyeOffset(dx, dy, radius, distortion) {
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d >= radius) return [dx, dy];
@@ -58,7 +65,7 @@ export class PointLayer {
     this._tokenOverlayEntries = [];
     this._pins = [];
     this._showPinnedOnly = false;
-    this.points = points.map(p => ({ ...p, opacity: 1, family: familyOf(p.lang) }));
+    this.points = points.map(p => ({ ...p, opacity: 1 }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
     this._familyColorScale = d3.scaleOrdinal(families, d3.schemeTableau10);
     this.baseXScale = baseXScale;
@@ -72,6 +79,14 @@ export class PointLayer {
   setFamilyColorMode(enabled) {
     this._familyModeEnabled = enabled;
     this._animateTo(d => this._opacityTarget(d));
+  }
+
+  // The family -> color mapping actually in use for the current dataset
+  // (only the families present, not the full fixed palette) — used by
+  // App to render a legend. Empty until setPoints() has built the scale.
+  getFamilyLegend() {
+    if (!this._familyColorScale) return [];
+    return this._familyColorScale.domain().map(family => ({ family, color: this._familyColorScale(family) }));
   }
 
   // Isolates the canvas to just the pinned points — takes precedence over
@@ -185,6 +200,8 @@ export class PointLayer {
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
 
+    const positions = fisheyeFocus ? this._computeFisheyePositions(fisheyeFocus, transform) : null;
+
     // Three-tier z-order so canvas draw order (dataset order, not by any
     // notion of importance) never buries something the user should be
     // able to see: plain gray points first, colored ones next, pinned
@@ -196,18 +213,13 @@ export class PointLayer {
       else if (this._isColored(d)) colored.push(d);
       else background.push(d);
     }
-    for (const d of background) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
-    for (const d of colored) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
-    for (const d of pinned) this._drawPoint(ctx, d, transform, hoveredId, fisheyeFocus);
+    for (const d of background) this._drawPoint(ctx, d, transform, hoveredId, positions);
+    for (const d of colored) this._drawPoint(ctx, d, transform, hoveredId, positions);
+    for (const d of pinned) this._drawPoint(ctx, d, transform, hoveredId, positions);
 
     for (const d of this._tokenOverlayEntries) {
-      let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
-      if (fisheyeFocus) {
-        const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
-        cx = fisheyeFocus.x + ox;
-        cy = fisheyeFocus.y + oy;
-      }
-      const size = 5 / transform.k;
+      const [cx, cy] = positions ? positions.get(d.id) : [this.baseXScale(d.x), this.baseYScale(d.y)];
+      const size = POINT_RADIUS / transform.k;
       ctx.beginPath();
       ctx.moveTo(cx, cy - size);
       ctx.lineTo(cx + size, cy);
@@ -225,16 +237,57 @@ export class PointLayer {
     ctx.globalAlpha = 1;
   }
 
-  _drawPoint(ctx, d, transform, hoveredId, fisheyeFocus) {
-    let cx = this.baseXScale(d.x), cy = this.baseYScale(d.y);
-    if (fisheyeFocus) {
-      const [ox, oy] = _fisheyeOffset(cx - fisheyeFocus.x, cy - fisheyeFocus.y, fisheyeFocus.radius, fisheyeFocus.distortion);
-      cx = fisheyeFocus.x + ox;
-      cy = fisheyeFocus.y + oy;
+  // Radial distortion alone (_fisheyeOffset) can't stop two points from
+  // still overlapping after magnification — it moves each point only as
+  // a function of its own distance from the focus, blind to every other
+  // point. This adds a second pass: after the radial distortion, points
+  // that ended up within one render-diameter of each other are pushed
+  // apart along the line between them, split evenly, for a few
+  // iterations (a full physical simulation isn't needed — a handful of
+  // passes visibly declutters without the cost or instability of solving
+  // to convergence). Sentence points and token-overlay points share one
+  // relaxation pass since both can visually collide under the lens; each
+  // carries its own unique id, so one Map holds both without clashing.
+  _computeFisheyePositions(fisheyeFocus, transform) {
+    const positions = new Map();
+    const affected = [];
+    const allPoints = this._tokenOverlayEntries.length ? this.points.concat(this._tokenOverlayEntries) : this.points;
+    for (const d of allPoints) {
+      const cx0 = this.baseXScale(d.x), cy0 = this.baseYScale(d.y);
+      const dx = cx0 - fisheyeFocus.x, dy = cy0 - fisheyeFocus.y;
+      if (Math.sqrt(dx * dx + dy * dy) >= fisheyeFocus.radius) {
+        positions.set(d.id, [cx0, cy0]);
+        continue;
+      }
+      const [ox, oy] = _fisheyeOffset(dx, dy, fisheyeFocus.radius, fisheyeFocus.distortion);
+      positions.set(d.id, [fisheyeFocus.x + ox, fisheyeFocus.y + oy]);
+      affected.push(d.id);
     }
+
+    const minDist = (2 * POINT_RADIUS) / transform.k;
+    for (let iter = 0; iter < FISHEYE_RELAX_ITERATIONS; iter++) {
+      for (let i = 0; i < affected.length; i++) {
+        const pi = positions.get(affected[i]);
+        for (let j = i + 1; j < affected.length; j++) {
+          const pj = positions.get(affected[j]);
+          const dx = pj[0] - pi[0], dy = pj[1] - pi[1];
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001; // avoid a divide-by-zero if two points land exactly on top of each other
+          if (dist >= minDist) continue;
+          const push = (minDist - dist) / 2;
+          const ux = dx / dist, uy = dy / dist;
+          pi[0] -= ux * push; pi[1] -= uy * push;
+          pj[0] += ux * push; pj[1] += uy * push;
+        }
+      }
+    }
+    return positions;
+  }
+
+  _drawPoint(ctx, d, transform, hoveredId, fisheyePositions) {
+    const [cx, cy] = fisheyePositions ? fisheyePositions.get(d.id) : [this.baseXScale(d.x), this.baseYScale(d.y)];
     const hovered = d.id === hoveredId;
     ctx.beginPath();
-    ctx.arc(cx, cy, 5 / transform.k, 0, 2 * Math.PI);
+    ctx.arc(cx, cy, POINT_RADIUS / transform.k, 0, 2 * Math.PI);
     ctx.globalAlpha = d.opacity * 0.8;
     ctx.fillStyle = this._colorFor(d);
     ctx.fill();

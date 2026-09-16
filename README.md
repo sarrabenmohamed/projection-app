@@ -53,18 +53,26 @@ feature (translations, tokens, neighbors) has something to show.
 - **Show selected** (data table) filters the table down to just the
   pinned rows *and* isolates the plot to just those points — takes
   precedence over an active translations view rather than combining
-  with it.
+  with it. Also disables the fisheye lens (a lens over an isolated,
+  already-decluttered view isn't useful) until it's turned back off.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   **Refit** forces a manual re-run.
-- **Label on hover** — choose what the tooltip shows (text/ID/language).
+- **Label on hover** — choose what the tooltip shows (text/ID/language/
+  language family).
 - **Fisheye lens** — check the box, then hover the plot to magnify points
-  near the cursor (a circular lens, not a graph-topology-aware distortion —
-  useful for pulling apart a dense cluster to click an individual point).
+  near the cursor (a circular lens, not a graph-topology-aware distortion)
+  — pulls apart overlapping points in a dense cluster so you can click an
+  individual one; nearby points also push each other apart, not just
+  away from the cursor, so magnifying a tight cluster actually separates
+  them instead of leaving them stacked.
 - **Color by language family** (default on) — every point colored by its
-  language's linguistic family. Uncheck to switch to **Filter languages**
-  instead — pick specific languages to get real colors, with everything
-  else neutral gray. The two modes are mutually exclusive; the language
-  search is disabled while family coloring is active.
+  language's linguistic family, with a legend underneath the checkbox.
+  Uncheck to switch to **Filter languages** instead — pick specific
+  languages to get real colors, with everything else neutral gray. The
+  two modes are mutually exclusive; the language search is disabled
+  while family coloring is active.
+- **Resize the data table** — drag the thin handle between the plot and
+  the table; the split is remembered across reloads.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
   expected format.
 - **Copy link** — copies a URL with the current method/metric/label and

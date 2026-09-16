@@ -25,7 +25,7 @@ class App {
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleNeighbors: point => this.onToggleNeighbors(point),
         onChangeNeighborsK: (point, k) => this.onChangeNeighborsK(point, k),
-        onToggleShowSelectedOnly: enabled => this.view.setShowPinnedOnly(enabled),
+        onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
       }
     );
     this.langFilter = new LangFilter(
@@ -74,6 +74,7 @@ class App {
       .addEventListener('change', e => {
         this.view.setFamilyColorMode(e.target.checked);
         document.getElementById('lang-search').disabled = e.target.checked;
+        this._renderFamilyLegend();
       });
     document.getElementById('lang-search').disabled = document.getElementById('family-color-toggle').checked;
     document.getElementById('format-help-toggle')
@@ -85,6 +86,7 @@ class App {
     document.getElementById('copy-link-button')
       .addEventListener('click', () => this._copyLink());
     this._initLayoutConfig();
+    this._initResizeHandle();
     installActionsMenuOutsideClickHandler();
 
     await this._refresh();
@@ -152,6 +154,7 @@ class App {
       document.getElementById(panelIdFor[key]).classList.toggle('hidden', !visible);
       document.getElementById(checkboxIdFor[key]).checked = visible;
     }
+    this._updateResizeHandleVisibility();
 
     document.getElementById('layout-config-toggle').addEventListener('click', () => {
       document.getElementById('layout-config-panel').classList.toggle('visible');
@@ -177,6 +180,7 @@ class App {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
 
         if (key === 'projection' && this.view) this.view.resize();
+        this._updateResizeHandleVisibility();
       });
     }
   }
@@ -207,7 +211,54 @@ class App {
       }
     }
 
+    this._updateResizeHandleVisibility();
     this.view.resize();
+  }
+
+  // The resize handle only makes sense when both panels it sits between
+  // are actually on screen to trade space with each other.
+  _updateResizeHandleVisibility() {
+    const projectionVisible = !document.getElementById('projection-panel').classList.contains('hidden');
+    const tableVisible = !document.getElementById('data-table-panel').classList.contains('hidden');
+    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(projectionVisible && tableVisible));
+  }
+
+  // Drag-to-resize between the projection and data-table panels. Sets an
+  // explicit inline height on #data-table-panel (overriding its CSS
+  // default), persisted across reloads the same way layout-config is.
+  // Dragging the handle down shrinks the table (and lets the flex:1
+  // projection panel above it grow into the freed space); dragging up
+  // grows it — the opposite of the mouse's own screen-Y direction, since
+  // the table sits below the handle.
+  _initResizeHandle() {
+    const STORAGE_KEY = 'projection-app-table-height';
+    const handle = document.getElementById('data-table-resize-handle');
+    const panel = document.getElementById('data-table-panel');
+    const MIN_HEIGHT = 100;
+
+    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    if (Number.isFinite(saved) && saved > 0) panel.style.height = `${saved}px`;
+
+    let startY = 0, startHeight = 0;
+    const onMouseMove = e => {
+      const delta = e.clientY - startY;
+      panel.style.height = `${Math.max(MIN_HEIGHT, startHeight - delta)}px`;
+      this.view.resize();
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      handle.classList.remove('dragging');
+      localStorage.setItem(STORAGE_KEY, parseInt(panel.style.height, 10));
+    };
+    handle.addEventListener('mousedown', e => {
+      startY = e.clientY;
+      startHeight = panel.getBoundingClientRect().height;
+      handle.classList.add('dragging');
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      e.preventDefault();
+    });
   }
 
   _toggleFormatHelp() {
@@ -283,12 +334,13 @@ class App {
     this.view.clearHighlight();
     this.view.setPinnedPoints([]);
     this.view.setTokenOverlays(new Map());
+    this._setShowSelectedOnly(false); // DataTable.setPoints() below resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
 
     const coordsById = new Map(proj.points.map(p => [p.id, p]));
     this.points = meta.points.map(p => {
       const c = coordsById.get(p.id);
       return {
-        id: p.id, lang: p.lang, text: p.text, pairId: p.pairId,
+        id: p.id, lang: p.lang, text: p.text, pairId: p.pairId, family: p.family,
         hasTokens: p.hasTokens, tokenTexts: p.tokenTexts,
         // no pairId at all -> each point is its own group, so it isolates alone
         groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
@@ -302,7 +354,27 @@ class App {
     this.langFilter.setLangs(meta.lang_codes);
     this.table.setPoints(this.points);
     this.view.update(this.points, d => this.onCanvasClickPoint(d));
+    this._renderFamilyLegend();
     this._syncUrl();
+  }
+
+  // Rebuilds the sidebar's family-color legend from whatever families are
+  // actually present in the current dataset — empty (and hidden) whenever
+  // family mode is off, since the swatches would be meaningless then.
+  _renderFamilyLegend() {
+    const el = document.getElementById('family-legend');
+    el.innerHTML = '';
+    if (!document.getElementById('family-color-toggle').checked) return;
+    for (const { family, color } of this.view.getFamilyLegend()) {
+      const item = document.createElement('span');
+      item.className = 'family-legend-item';
+      const swatch = document.createElement('span');
+      swatch.className = 'family-legend-swatch';
+      swatch.style.background = color;
+      item.appendChild(swatch);
+      item.appendChild(document.createTextNode(family));
+      el.appendChild(item);
+    }
   }
 
   // Rebuilds every consumer's view of the pinned set from scratch each
@@ -326,6 +398,33 @@ class App {
     this.view.setTokenOverlays(overlaysByPin);
 
     this.table.setPins(pins);
+
+    // If unpinning (via canvas click, background click, or the table
+    // checkbox) just emptied the selection while "show selected" was
+    // isolating the canvas to it, turn that isolate back off instead of
+    // leaving it isolated to an empty set — which would otherwise fade
+    // every single point to invisible and look like "everything
+    // disappeared" rather than "nothing is pinned anymore."
+    if (this._selection.length === 0 && this.table.isShowSelectedOnly()) {
+      this.table.setShowSelectedOnly(false);
+      this._setShowSelectedOnly(false);
+    }
+  }
+
+  // Single place that turns "show selected" on/off for the canvas side,
+  // so every caller (the table's checkbox, and the auto-recovery in
+  // _syncPins above) gets the same side effect: the fisheye lens is
+  // mutually exclusive with isolating to the pinned set (turning show-
+  // selected on forces the lens off and disables its checkbox; turning
+  // it back off just re-enables the checkbox, it doesn't re-check it).
+  _setShowSelectedOnly(enabled) {
+    this.view.setShowPinnedOnly(enabled);
+    const fisheyeToggle = document.getElementById('fisheye-toggle');
+    fisheyeToggle.disabled = enabled;
+    if (enabled) {
+      fisheyeToggle.checked = false;
+      this.view.setFisheyeEnabled(false);
+    }
   }
 
   // Canvas points are always sentences — token overlay points aren't
@@ -453,7 +552,7 @@ class App {
     if (!liveDetail) return; // unpinned while the request was in flight
     liveDetail.tokens = true;
     liveDetail.tokenPoints = proj.tokens.map((t, i) => ({
-      id: `${point.id}::${i}`, lang: point.lang, text: t.token, x: t.x, y: t.y,
+      id: `${point.id}::${i}`, lang: point.lang, family: point.family, text: t.token, x: t.x, y: t.y,
     }));
     this._syncPins();
     this._syncUrl();

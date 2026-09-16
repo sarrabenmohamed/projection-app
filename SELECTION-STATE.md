@@ -151,12 +151,15 @@ auto-switch case above, the only deliberate exception.
 `PointLayer._familyModeEnabled` (default `true`) picks between:
 
 - **Family mode** (default): every point is colored by its language's
-  linguistic family — `client-js/lang-families.js`'s `familyOf(langCode)`
-  maps FLORES-200's ~40 codes into ~14 families (unknown codes, e.g.
-  from an uploaded dataset, fall into a shared `"Other"` bucket), and
+  linguistic family — the backend attaches a `family` field to every
+  point (`server.py`'s `LANG_FAMILY`/`family_of()`, mapping FLORES-200's
+  ~40 codes into ~14 families; unknown codes, e.g. from an uploaded
+  dataset, fall into a shared `"Other"` bucket), and `App._loadDataset`
+  copies it onto each point object alongside `lang`/`text`/etc.
   `PointLayer.setPoints()` builds a `d3.scaleOrdinal` color scale from
-  whatever distinct families are actually present in the loaded data.
-  Every point is fully opaque; there's no "background gray" tier.
+  whatever distinct families are actually present in the loaded data —
+  `PointLayer.getFamilyLegend()` exposes that mapping for the sidebar's
+  legend. Every point is fully opaque; there's no "background gray" tier.
 - **Language-filter mode**: the pre-existing behavior. Every point is
   neutral gray (`NEUTRAL_COLOR`) by default; only languages explicitly
   selected via the sidebar's language filter get a real color
