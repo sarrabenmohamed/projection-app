@@ -1,11 +1,13 @@
-// Shared "Actions ▾" dropdown for one pinned point — used identically by
-// DataTable and SelectionPanel. Every render reads current toggle state
-// from `detail` and calls back into App, which owns _detailState as the
-// single source of truth. Which menu is *open*, however, is tracked here
-// as module-level state (not a DOM node's CSS class) — DataTable does a
-// full tbody teardown-and-rebuild on every toggle (see data-table.js's
-// _render()), which would otherwise destroy the "open" class the instant
-// a checklist line inside this very menu is clicked.
+// Shared "Actions ▾" dropdown for one pinned point — currently used only
+// by DataTable, but built generic (an `ownerKey` scopes which container's
+// menu is open) in case another view reuses it later. Every render reads
+// current toggle state from `detail` and calls back into App, which owns
+// _detailState as the single source of truth. Which menu is *open*,
+// however, is tracked here as module-level state (not a DOM node's CSS
+// class) — DataTable does a full tbody teardown-and-rebuild on every
+// toggle (see data-table.js's _render()), which would otherwise destroy
+// the "open" class the instant a checklist line inside this very menu is
+// clicked.
 let openMenuId = null; // at most one Actions menu open per container (keyed by `${ownerKey}:${point.id}`) at a time
 
 export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }, ownerKey) {

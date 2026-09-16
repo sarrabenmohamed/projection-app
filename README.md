@@ -39,31 +39,32 @@ feature (translations, tokens, neighbors) has something to show.
 
 ## Using it
 
-- **Pin a point** (click on the plot or a data-table row) to add it to
-  your selection — pin more than one to compare them. Click a pinned
-  point again to unpin it, or click empty canvas space to clear every
-  pin at once.
-- Each pinned point gets its own **Actions ▾** menu (in the data table
-  or the new **Selection panel**) — independently toggle its tokens and
-  nearest neighbors. **Translations** are the one exception: only
-  available while exactly one point is pinned. Tokens overlay that
-  sentence's token embeddings in the same UMAP space (auto-switches
-  method to UMAP if needed); neighbors lists the *k* nearest points by
-  full-vector distance (id, text, distance), with *k* set inline in the
-  menu.
-- The **Selection panel** lists everything currently pinned in one place,
-  with a color swatch matching its canvas ring; click a row to focus it,
-  or its **×** to unpin.
-- **show_selected** (data table) filters the table down to just the
-  pinned rows.
+- **Pin a point** — check the checkbox in a data-table row (its only pin
+  control; clicking elsewhere on the row does nothing), or click it on
+  the plot. Pin more than one to compare them. Click empty canvas space
+  to clear every pin at once.
+- Each pinned point gets its own **Actions ▾** menu (in the data table)
+  — independently toggle its tokens and nearest neighbors.
+  **Translations** are the one exception: only available while exactly
+  one point is pinned. Tokens overlay that sentence's token embeddings
+  in the same UMAP space (auto-switches method to UMAP if needed);
+  neighbors lists the *k* nearest points by full-vector distance (id,
+  text, distance), with *k* set inline in the menu.
+- **Show selected** (data table) filters the table down to just the
+  pinned rows *and* isolates the plot to just those points — takes
+  precedence over an active translations view rather than combining
+  with it.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   **Refit** forces a manual re-run.
 - **Label on hover** — choose what the tooltip shows (text/ID/language).
 - **Fisheye lens** — check the box, then hover the plot to magnify points
   near the cursor (a circular lens, not a graph-topology-aware distortion —
   useful for pulling apart a dense cluster to click an individual point).
-- **Filter languages** — selected languages get real colors; the rest stay
-  neutral gray.
+- **Color by language family** (default on) — every point colored by its
+  language's linguistic family. Uncheck to switch to **Filter languages**
+  instead — pick specific languages to get real colors, with everything
+  else neutral gray. The two modes are mutually exclusive; the language
+  search is disabled while family coloring is active.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
   expected format.
 - **Copy link** — copies a URL with the current method/metric/label and
