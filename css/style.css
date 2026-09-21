@@ -61,13 +61,17 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 .view-panel.fullscreen { flex: 1 !important; height: auto !important; }
 
 #layout-config-toggle {
-  position: fixed; top: 8px; right: 8px; z-index: 500;
+  /* Sits just left of the projection panel's fullscreen (resize) button
+     rather than on top of it — that button is flush against the
+     viewport's right edge (10px header padding + 20px button width),
+     so this needs at least a 38px right offset to clear it. */
+  position: fixed; top: 8px; right: 38px; z-index: 500;
   width: 28px; height: 28px; border-radius: 50%;
   border: 1px solid #ccc; background: #fff; cursor: pointer; font-size: 14px;
 }
 #layout-config-panel {
   display: none;
-  position: fixed; top: 42px; right: 8px; z-index: 500;
+  position: fixed; top: 42px; right: 38px; z-index: 500;
   background: #fff; border: 1px solid #ddd; border-radius: 4px;
   padding: 8px 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   font-size: 0.8em;
