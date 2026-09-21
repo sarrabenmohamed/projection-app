@@ -51,7 +51,7 @@ export class ProjectionView {
 
     this.canvas.addEventListener('click', event => this._onCanvasClick(event));
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
-    this.canvas.addEventListener('mouseleave', () => this._hideTooltip());
+    this.canvas.addEventListener('mouseleave', () => this._onCanvasMouseLeave());
   }
 
   update(points, onClickPoint) {
@@ -233,11 +233,17 @@ export class ProjectionView {
       this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
       this.canvas.style.cursor = 'pointer';
     } else {
-      this._hideTooltip();
+      // Just hovering empty canvas space, not leaving it — hide the
+      // tooltip only. Do NOT clear _fisheyeFocus here: the lens should
+      // stay active over gaps between points, not just exactly on one;
+      // _onCanvasMouseLeave (actual mouseleave) is the only place that
+      // clears it.
+      this.tooltip.hide();
+      this.canvas.style.cursor = 'default';
     }
   }
 
-  _hideTooltip() {
+  _onCanvasMouseLeave() {
     this.tooltip.hide();
     this.canvas.style.cursor = 'default';
     const hadFisheyeFocus = this._fisheyeFocus !== null;
