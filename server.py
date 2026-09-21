@@ -5,6 +5,7 @@ static frontend: uvicorn server:app --port 8500
 
 Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
+    POST /dataset/reset           reload the default FLORES-200 dataset, discarding whatever's loaded.
     GET  /points                  point metadata only, no vectors (includes each point's language family).
     GET  /project                 2D coords for all points (?method=umap|tsne&metric=cosine|euclidean|manhattan).
     GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric= must match).
@@ -176,18 +177,39 @@ def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) ->
     return built
 
 
-@app.on_event("startup")
-def load_default_dataset() -> None:
+def _build_default_dataset() -> dict:
     config = _pipeline_config()
     print(f"Preparing default dataset: {config}")
+    raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
+    return validate_and_normalize(raw)
+
+
+@app.on_event("startup")
+def load_default_dataset() -> None:
     try:
-        raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
+        DATASET["data"] = _build_default_dataset()
     except Exception as e:
         print(f"Could not prepare default dataset ({e}) — POST /dataset to load one.")
         return
-    DATASET["data"] = validate_and_normalize(raw)
     DATASET["generation"] += 1
     print(f"Loaded default dataset: {len(DATASET['data']['points'])} points")
+
+
+@app.post("/dataset/reset")
+def reset_dataset() -> dict:
+    """Reloads the default FLORES-200 dataset, discarding whatever is
+    currently loaded (e.g. an uploaded file) — the same logic startup
+    runs, callable on demand so the frontend's "Reset to default" button
+    doesn't require restarting the server. Fails loudly (500) rather than
+    startup's silent skip, since a user clicking this button expects
+    either a reset or an explanation, not nothing."""
+    try:
+        DATASET["data"] = _build_default_dataset()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not reload the default dataset: {e}") from e
+    DATASET["generation"] += 1
+    d = DATASET["data"]
+    return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
 
 
 def _current_dataset() -> dict:

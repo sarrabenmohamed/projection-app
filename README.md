@@ -77,7 +77,10 @@ feature (translations, tokens, neighbors) has something to show.
 - **Resize the data table** — drag the thin handle between the plot and
   the table; the split is remembered across reloads.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
-  expected format.
+  expected format. **Reset to default dataset** discards it and reloads
+  FLORES-200 without restarting the server — reloading the full default
+  dataset from its cache file can take a while (it's several GB), so this
+  can take up to a minute or two.
 - **Copy link** — copies a URL with the current method/metric/label and
   pinned point ids as query params; opening it re-pins the same points
   (translations/tokens/neighbors toggles are not restored — every

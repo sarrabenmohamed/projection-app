@@ -31,6 +31,10 @@ export class BackendClient {
     });
   }
 
+  resetDataset() {
+    return this._request('/dataset/reset', { method: 'POST' });
+  }
+
   async _request(path, options) {
     let res;
     try {

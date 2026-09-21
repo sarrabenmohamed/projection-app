@@ -14,6 +14,7 @@
       <label for="file-input">Load embeddings JSON:</label>
       <button type="button" id="format-help-toggle" title="What format does this file need to be?">?</button>
       <input type="file" id="file-input" accept=".json,application/json">
+      <button type="button" id="reset-dataset-button" title="Discard the loaded file and reload the default FLORES-200 dataset">Reset to default dataset</button>
       <div id="format-help">
         <p>A JSON object with a <code>points</code> array. Everything except <code>points[].id</code>, <code>points[].lang</code>, and <code>points[].vector</code> is optional:</p>
 <pre>{
