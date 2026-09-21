@@ -24,27 +24,35 @@ const ISOLATED_OUT_OPACITY = 0;
 const POINT_RADIUS = 5; // local-unit render radius before the 1/transform.k scale-compensation
 const FISHEYE_RELAX_ITERATIONS = 4;
 
-// Circular "magnifying glass" distortion — ported from the classic
-// d3-plugins `d3.fisheye.circular()` (Bostock; MIT-licensed, archived at
-// https://github.com/d3/d3-plugins/blob/master/fisheye/fisheye.js), which
-// predates D3's v4+ modularization and was never folded into core D3, so
-// it isn't available from the `d3@7` bundle this project loads and has
-// to be ported by hand instead of imported. Same shape as its original
-// (still keyed on an exponential falloff rather than the simpler
-// rational one this file used before): a point at offset (dx, dy) from
-// the lens focus, within `radius`, is pushed further out (k > 1 near the
-// center) while points near the edge compress back toward their real
-// position (k -> 1 exactly at d = radius, verified algebraically, not
-// just by construction, so there's no visible seam). Points beyond
-// `radius` are untouched.
+// Two interchangeable circular "magnifying glass" distortions — both take
+// a point's offset (dx, dy) from the lens focus and return a new offset,
+// pushed further out near the center (k > 1) and compressing back to the
+// real position at the edge (k -> 1 exactly at d = radius, so there's no
+// visible seam either way). App picks which one via the sidebar's
+// "Fisheye style" select, threaded through as fisheyeFocus.style.
 //
-// This alone can't prevent two points from still overlapping after
+// Neither alone can prevent two points from still overlapping after
 // magnification: two points equidistant from the focus get pushed by the
 // identical factor k, so they stay exactly as overlapped, just farther
-// from center. See _computeFisheyePositions for the pass that fixes that
-// — d3.fisheye.circular() itself has no equivalent, this project's own
-// addition on top of the ported formula.
-function _fisheyeOffset(dx, dy, radius, distortion) {
+// from center. See _computeFisheyePositions for the relaxation pass that
+// fixes that — it runs on top of whichever style is selected.
+
+// This project's own original formula: a simple rational falloff.
+function _fisheyeOffsetGeometric(dx, dy, radius, distortion) {
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= radius) return [dx, dy];
+  const k = (radius * (distortion + 1)) / (distortion * d + radius);
+  return [dx * k, dy * k];
+}
+
+// Ported from the classic d3-plugins `d3.fisheye.circular()` (Bostock;
+// MIT-licensed, archived at
+// https://github.com/d3/d3-plugins/blob/master/fisheye/fisheye.js), which
+// predates D3's v4+ modularization and was never folded into core D3, so
+// it isn't available from the `d3@7` bundle this project loads and had
+// to be ported by hand instead of imported. Uses an exponential falloff
+// rather than the geometric formula's rational one.
+function _fisheyeOffsetD3(dx, dy, radius, distortion) {
   const d = Math.sqrt(dx * dx + dy * dy);
   if (!d || d >= radius) return [dx, dy];
   let k0 = Math.exp(distortion);
@@ -52,6 +60,12 @@ function _fisheyeOffset(dx, dy, radius, distortion) {
   const k1 = distortion / radius;
   const k = ((k0 * (1 - Math.exp(-d * k1))) / d) * 0.75 + 0.25;
   return [dx * k, dy * k];
+}
+
+function _fisheyeOffset(dx, dy, radius, distortion, style) {
+  return style === 'geometric'
+    ? _fisheyeOffsetGeometric(dx, dy, radius, distortion)
+    : _fisheyeOffsetD3(dx, dy, radius, distortion);
 }
 
 export class PointLayer {
@@ -272,7 +286,7 @@ export class PointLayer {
         positions.set(d.id, [cx0, cy0]);
         continue;
       }
-      const [ox, oy] = _fisheyeOffset(dx, dy, fisheyeFocus.radius, fisheyeFocus.distortion);
+      const [ox, oy] = _fisheyeOffset(dx, dy, fisheyeFocus.radius, fisheyeFocus.distortion, fisheyeFocus.style);
       positions.set(d.id, [fisheyeFocus.x + ox, fisheyeFocus.y + oy]);
       affected.push(d.id);
     }

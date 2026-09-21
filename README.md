@@ -64,7 +64,10 @@ feature (translations, tokens, neighbors) has something to show.
   — pulls apart overlapping points in a dense cluster so you can click an
   individual one; nearby points also push each other apart, not just
   away from the cursor, so magnifying a tight cluster actually separates
-  them instead of leaving them stacked.
+  them instead of leaving them stacked. **Style** picks the magnification
+  curve underneath: **D3** is a hand-ported version of the classic
+  `d3.fisheye.circular()` plugin (exponential falloff); **Geometric** is
+  this project's own simpler rational-falloff curve.
 - **Color by language family** (default on) — every point colored by its
   language's linguistic family, with a legend underneath the checkbox.
   Uncheck to switch to **Filter languages** instead — pick specific

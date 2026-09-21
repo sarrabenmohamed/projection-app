@@ -70,6 +70,8 @@ class App {
       .addEventListener('change', e => { this.view.setLabelBy(e.target.value); this._syncUrl(); });
     document.getElementById('fisheye-toggle')
       .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
+    document.getElementById('fisheye-style-select')
+      .addEventListener('change', e => this.view.setFisheyeStyle(e.target.value));
     document.getElementById('family-color-toggle')
       .addEventListener('change', e => {
         this.view.setFamilyColorMode(e.target.checked);

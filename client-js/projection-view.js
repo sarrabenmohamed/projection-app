@@ -46,6 +46,7 @@ export class ProjectionView {
     this._hoveredId = null;
     this._labelBy = 'text';
     this._fisheyeEnabled = false;
+    this._fisheyeStyle = 'd3'; // 'd3' | 'geometric' — see point-layer.js's _fisheyeOffset
     this._fisheyeFocus = null;
     this._drawRafPending = false;
 
@@ -87,6 +88,17 @@ export class ProjectionView {
     this._fisheyeEnabled = enabled;
     if (!enabled) {
       this._fisheyeFocus = null;
+      this._draw();
+    }
+  }
+
+  // Changing style while the lens is already active re-renders with the
+  // new curve immediately, at the same focus position, rather than
+  // waiting for the next mousemove.
+  setFisheyeStyle(style) {
+    this._fisheyeStyle = style;
+    if (this._fisheyeFocus) {
+      this._fisheyeFocus = { ...this._fisheyeFocus, style };
       this._draw();
     }
   }
@@ -199,7 +211,10 @@ export class ProjectionView {
       return;
     }
     const [x, y] = this._screenToLocal(event);
-    this._fisheyeFocus = { x, y, radius: FISHEYE_RADIUS / this.axes.transform.k, distortion: FISHEYE_DISTORTION };
+    this._fisheyeFocus = {
+      x, y, radius: FISHEYE_RADIUS / this.axes.transform.k, distortion: FISHEYE_DISTORTION,
+      style: this._fisheyeStyle,
+    };
   }
 
   _onCanvasClick(event) {
