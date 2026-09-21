@@ -60,6 +60,8 @@ class App {
 
     document.getElementById('file-input')
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
+    document.getElementById('reset-dataset-button')
+      .addEventListener('click', () => this._onResetDataset());
     document.getElementById('method-select')
       .addEventListener('change', () => this._refresh());
     document.getElementById('metric-select')
@@ -301,6 +303,25 @@ class App {
       this._refresh();
     };
     reader.readAsText(file);
+  }
+
+  // Discards whatever's currently loaded (e.g. an uploaded file) and
+  // reloads the default FLORES-200 dataset — the backend's /dataset/reset
+  // does the actual swap; this just clears the file input (so re-picking
+  // the same file still fires a change event) and re-runs the same
+  // fetch-points-and-project flow every other dataset change goes through.
+  async _onResetDataset() {
+    this._setLoading(true, 'Resetting to default dataset...');
+    try {
+      await this.backend.resetDataset();
+    } catch (err) {
+      this._setLoading(false);
+      document.getElementById('status').textContent = err.message;
+      return;
+    }
+    this._setLoading(false);
+    document.getElementById('file-input').value = '';
+    this._refresh();
   }
 
   async _refresh() {

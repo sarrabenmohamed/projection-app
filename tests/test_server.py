@@ -190,6 +190,40 @@ def test_load_default_dataset_degrades_gracefully_when_build_fails(tmp_path, mon
         server.DATASET["generation"] = saved_dataset["generation"]
 
 
+def test_reset_dataset_endpoint_reloads_default(client, tmp_path, monkeypatch):
+    default_built = {
+        "model": "default-model", "layer": "last", "pooling": "mean", "lang_codes": ["a"],
+        "points": [{"id": "a-0", "lang": "a", "vector": [0.0, 0.0, 0.0]}],
+    }
+
+    def fake_build_dataset(lang_codes, n_sentences, model_name, pooling):
+        return default_built
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
+    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "cache.json")
+
+    res = client.post("/dataset/reset")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["n_points"] == 1
+    assert body["lang_codes"] == ["a"]
+    assert server.DATASET["data"]["model"] == "default-model"
+
+
+def test_reset_dataset_endpoint_500_and_keeps_current_dataset_on_failure(client, tmp_path, monkeypatch):
+    def fake_build_dataset(*args, **kwargs):
+        raise RuntimeError("no HuggingFace auth/network available")
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
+    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "does-not-exist.json")
+
+    previous_model = server.DATASET["data"]["model"]
+    res = client.post("/dataset/reset")
+    assert res.status_code == 500
+    assert "Could not reload the default dataset" in res.json()["detail"]
+    assert server.DATASET["data"]["model"] == previous_model  # untouched on failure
+
+
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
     fit_calls = []
     orig_fit = server.umap.UMAP.fit
