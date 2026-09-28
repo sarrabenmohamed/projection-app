@@ -1,26 +1,12 @@
-// Owns the SVG axis overlay and the d3.zoom behavior attached to targetEl
-// (the canvas). Exposes the current transform for the owner to use when
-// drawing points and hit-testing; calls onZoom() after every zoom/pan/reset
-// so the owner knows to redraw.
+// Owns the d3.zoom behavior attached to targetEl (the canvas) — no visual
+// axis/tick chrome, just the pan/zoom state. Exposes the current transform
+// for the owner to use when drawing points and hit-testing; calls onZoom()
+// after every zoom/pan/reset so the owner knows to redraw.
 
 export class ZoomableAxes {
-  constructor(containerEl, targetEl, width, height, margin, onZoom) {
-    this._containerEl = containerEl;
+  constructor(targetEl, width, height, onZoom) {
     this._targetEl = targetEl;
-    this._margin = margin;
     this.transform = d3.zoomIdentity;
-
-    // Axes are a handful of tick marks, not one element per data point, so
-    // a small SVG overlay for just the axis chrome is fine
-    // TODO: use d3.axisBottom() and d3.axisLeft() to draw the axes?
-    this.svg = d3.select(containerEl).append('svg')
-      .attr('class', 'axis-layer')
-      .attr('width', containerEl.clientWidth)
-      .attr('height', containerEl.clientHeight);
-    this.xAxisG = this.svg.append('g').attr('class', 'axis x-axis')
-      .attr('transform', `translate(${margin.left},${height + margin.top})`);
-    this.yAxisG = this.svg.append('g').attr('class', 'axis y-axis')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
 
     this.zoom = d3.zoom()
       .scaleExtent([0.5, 40])
@@ -40,23 +26,10 @@ export class ZoomableAxes {
     d3.select(this._targetEl).call(this.zoom.transform, d3.zoomIdentity);
   }
 
-  update(baseXScale, baseYScale) {
-    const zx = this.transform.rescaleX(baseXScale);
-    const zy = this.transform.rescaleY(baseYScale);
-    this.xAxisG.call(d3.axisBottom(zx).ticks(6));
-    this.yAxisG.call(d3.axisLeft(zy).ticks(6));
-  }
-
-  // Recomputes the SVG size, axis-group positions, and the zoom behavior's
-  // pannable/zoomable extent for a new container size — used when the
-  // plot's container is resized (e.g. a collapse/fullscreen toggle
-  // elsewhere in the layout), which the constructor never had to handle.
+  // Recomputes the zoom behavior's pannable/zoomable extent for a new
+  // container size — used when the plot's container is resized (e.g. a
+  // collapse/fullscreen toggle elsewhere in the layout).
   resize(width, height) {
-    this.svg
-      .attr('width', this._containerEl.clientWidth)
-      .attr('height', this._containerEl.clientHeight);
-    this.xAxisG.attr('transform', `translate(${this._margin.left},${height + this._margin.top})`);
-    this.yAxisG.attr('transform', `translate(${this._margin.left},${this._margin.top})`);
     this.zoom.extent([[0, 0], [width, height]]);
   }
 }

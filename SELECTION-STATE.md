@@ -1,7 +1,7 @@
 # Selection state machine
 
 Reference for how the pinned-point set, translations-isolate, the
-per-pin token/neighbor overlays, and the two canvas-coloring modes
+per-pin token overlays, and the two canvas-coloring modes
 interact — all owned by `App` (`client-js/app.js`) and mirrored into
 `DataTable`/`ProjectionView`. Written down once so future features have
 a known-correct baseline to extend rather than reverse-engineer.
@@ -25,9 +25,8 @@ Four pieces of state, all on `App`:
   (heavier canvas ring, highlighted table row) — it does not gate which
   rows get an `Actions ▾` dropdown; every pinned row gets one regardless
   of focus.
-- `_detailState` — `Map<id, { translations, tokens, tokenPoints,
-  neighbors, neighborsK, neighborRows }>`. An entry is created (all
-  flags off, `neighborsK: 5`) when a point is first pinned via
+- `_detailState` — `Map<id, { translations, tokens, tokenPoints }>`. An
+  entry is created (both flags off) when a point is first pinned via
   `_togglePin`, and deleted when it's unpinned — no stale entries linger
   for a point that isn't currently pinned.
 - `_pinColors` — `Map<id, color>` assigning each currently-pinned point
@@ -50,10 +49,8 @@ out of sync with the source of truth.
 
 ## Transitions
 
-**Toggling a pin** (`DataTable`'s pin checkbox, `onSelectRow` from a
-neighbor-row click — which resolves back to the full point object
-first, then also calls `_togglePin` — or a canvas point click via
-`onCanvasClickPoint`; all three route through `_togglePin`):
+**Toggling a pin** (`DataTable`'s pin checkbox, or a canvas point click
+via `onCanvasClickPoint`; both route through `_togglePin`):
 
 - Not currently pinned: assign it the next color in `PIN_PALETTE`, push
   its id onto `_selection`, create its `_detailState` entry with every
@@ -68,9 +65,8 @@ first, then also calls `_togglePin` — or a canvas point click via
   `_detailState` and `_pinColors` entries. If it was `_focusedId`, focus
   moves to the new last item in `_selection`, or `null` if the set is
   now empty.
-- Either way, `_syncPins()` and `_syncUrl()` run at the end, so canvas
-  rings/overlays, the table, and the URL's `ids=` param all stay
-  current.
+- Either way, `_syncPins()` runs at the end, so canvas rings/overlays and
+  the table stay current.
 
 **Clicking anywhere else on a sentence row** (not the pin checkbox):
 does nothing — no pin toggle, no highlight. This is a deliberate
@@ -84,13 +80,19 @@ never touches `_selection`/`_detailState`. This is the one row-click
 interaction that still does something, since token rows have no pin
 checkbox of their own.
 
-**Background click** (`onBackgroundClick` — canvas empty space):
-clears the entire selection — every pinned id is removed from
-`_selection`, every `_detailState`/`_pinColors` entry is deleted,
-`_focusedId` resets to `null`, and any active translations isolate is
-cleared on the canvas. (Clicking an already-pinned point again on the
-canvas still just unpins that one point via the normal toggle-off path
-above — it doesn't go through this method.)
+**Clicking empty canvas space** does nothing — it used to clear the
+entire selection, but now that the data table has an explicit **Clear
+selection** button (`App.clearSelection()`), an incidental background
+click no longer wipes pins. (Clicking an already-pinned point again on
+the canvas still just unpins that one point via the normal toggle-off
+path above.)
+
+**Clear selection button** (`DataTable`'s `.dt-clear-selection`,
+`App.clearSelection()`): clears the entire selection — every pinned id
+is removed from `_selection`, every `_detailState`/`_pinColors` entry is
+deleted, `_focusedId` resets to `null`, and any active translations
+isolate is cleared on the canvas. Disabled whenever `_selection` is
+empty.
 
 **Show/Hide translations** (`onToggleTranslations(point)`): toggles
 `_detailState.get(point.id).translations`. Guarded by `_selection.length
@@ -121,15 +123,6 @@ explicitly re-pins just this one point (`_togglePin(reselected)`) before
 fetching its tokens. This is the **only** path where a `_refresh()` is
 followed by automatic re-pinning; every other refresh trigger just
 resets to an empty selection.
-
-**Show/Hide neighbors** (`onToggleNeighbors(point)`, and
-`onChangeNeighborsK(point, k)` for the per-pin `k` input): toggles
-`_detailState.get(point.id).neighbors`/`neighborRows`, independently per
-pinned point, same as tokens. No method switch is ever needed —
-`/neighbors` operates on the full embedding vectors regardless of what's
-plotted — so this never triggers a `_refresh()`. Changing `k` while
-neighbors are already shown re-fetches immediately at the new count
-rather than just remembering it for next time.
 
 **Anything that calls `_refresh()`** (`_loadDataset`, triggered by a
 method/metric dropdown change, **Refit**, or uploading a new dataset):
@@ -220,8 +213,8 @@ a render-a-dropdown-for-this-point-id function, not a class with its own
 selection state — `App`'s `_detailState` is the single source of truth
 it reads from and calls back into). One `Actions ▾` button per pinned
 row opens a checklist popover: Translations, Tokens (omitted if
-`!point.hasTokens`), Neighbors (with an inline `k` input), a divider,
-and a disabled "Configure…" placeholder reserving the menu shape for a
+`!point.hasTokens`), a divider, and a disabled "Configure…" placeholder
+reserving the menu shape for a
 future holistic per-point settings panel. The dropdown stays open
 across multiple clicks inside it (`openMenuId` module-level state in
 `actions-menu.js`) — closing only on an outside click or Escape
@@ -276,17 +269,10 @@ returns early). Pinning a *token* point is not possible from either
 canvas or table; clicking a token row in the table only highlights it
 (see "Clicking a token row" above).
 
-## URL state
+## URL state (removed)
 
-`client-js/url-state.js`'s `ids` key holds a comma-separated list of
-pinned ids, in pin order. `App._syncUrl()` writes it from `_selection`
-at the end of every state-changing action, and `App._applyPendingSelection()`
-re-pins each id from a restored URL in that same order once the initial
-dataset has loaded — since `_togglePin` always focuses whatever it just
-pinned, the last id in the list ends up focused after restore, matching
-"last = focused" without needing any separate bookkeeping. Per-pin
-`translations`/`tokens`/`neighbors` flags are **not** encoded in the
-URL — restoring a link re-pins the same points with all three toggles
-off. This is a deliberate scope cut (avoiding a combinatorial
-per-id-per-flag query string), not a silent gap — see the README's
-"Copy link" bullet.
+An earlier iteration mirrored method/metric/hyperparams/label-by/the
+pinned id set into the URL query string (`client-js/url-state.js`,
+`App._syncUrl()`/`_applyPendingSelection()`) behind a "Copy link"
+button, so a shared link would restore the same view. Pulled out for
+now — nothing currently reads or writes the URL's query string.

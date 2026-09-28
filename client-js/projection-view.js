@@ -36,10 +36,7 @@ export class ProjectionView {
     this._applySize();
 
     this.pointLayer = new PointLayer(() => this._draw());
-    this.axes = new ZoomableAxes(this.el, this.canvas, this.width, this.height, this.margin, () => {
-      this._draw();
-      this._updateAxes();
-    });
+    this.axes = new ZoomableAxes(this.canvas, this.width, this.height, () => this._draw());
     this.tooltip = new Tooltip(this.el);
 
     this.quadtree = null;
@@ -137,7 +134,6 @@ export class ProjectionView {
         .addAll(this.pointLayer.points);
     }
     this._draw();
-    this._updateAxes();
   }
 
   _draw() {
@@ -158,10 +154,6 @@ export class ProjectionView {
       this._drawRafPending = false;
       this._draw();
     });
-  }
-
-  _updateAxes() {
-    this.axes.update(this.pointLayer.baseXScale, this.pointLayer.baseYScale);
   }
 
   // Converts a mouse event's screen position into the same "local"
@@ -220,11 +212,7 @@ export class ProjectionView {
   _onCanvasClick(event) {
     if (this._overlayPointAt(event)) return; // token overlay points aren't clickable, just hoverable
     const d = this._pointAt(event);
-    if (d) {
-      this._onClickPoint?.(d);
-    } else {
-      this._onBackgroundClick?.();
-    }
+    if (d) this._onClickPoint?.(d);
   }
 
   _onCanvasMouseMove(event) {

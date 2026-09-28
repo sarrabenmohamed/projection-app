@@ -8,6 +8,28 @@
 import { renderActionsMenu } from './actions-menu.js';
 
 const PAGE_SIZE = 50;
+// id/pairId are identifiers, not free text — a substring match on them would
+// be misleading (filtering pairId "1" would also match "10", "11", ...), so
+// these two require exact equality; lang/text stay substring.
+const EXACT_MATCH_FILTER_KEYS = new Set(['id', 'pairId']);
+// Lets the single search box target one column ("id=eng_Latn-3",
+// "pairid=5") instead of guessing — aliases are lowercase since the key is
+// matched case-insensitively.
+const COLUMN_ALIASES = { id: 'id', lang: 'lang', language: 'lang', text: 'text', pairid: 'pairId', pair_id: 'pairId' };
+
+// A bare query (no "key=") searches lang+text, same as the original search
+// box; "key=value" targets just that column instead.
+function parseSearchQuery(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const eq = trimmed.indexOf('=');
+  if (eq > 0) {
+    const key = COLUMN_ALIASES[trimmed.slice(0, eq).trim().toLowerCase()];
+    const value = trimmed.slice(eq + 1).trim();
+    if (key && value) return { key, value };
+  }
+  return { key: null, value: trimmed };
+}
 
 // Sentence text, language, and token strings all come from whatever
 // dataset JSON was uploaded via POST /dataset — untrusted input, not
@@ -23,18 +45,20 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeNeighborsK, onToggleShowSelectedOnly }) {
+  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onToggleTranslations = onToggleTranslations;
     this._onToggleTokens = onToggleTokens;
-    this._onToggleNeighbors = onToggleNeighbors;
-    this._onChangeNeighborsK = onChangeNeighborsK;
     this._onToggleShowSelectedOnly = onToggleShowSelectedOnly;
+    this._onClearSelection = onClearSelection;
 
     this.points = [];
     this._pins = []; // Array<{point, color, focused, detail}>
     this._highlightedRowId = null; // token-row click only, independent of pins
+    // Ephemeral — reset on every setPoints() and never persisted or synced
+    // to the canvas: this is just a quick local view narrowing, not a
+    // selection, so it shouldn't outlive the table.
     this._search = '';
     this._sortKey = null;
     this._sortAsc = true;
@@ -43,8 +67,9 @@ export class DataTable {
 
     this.container.innerHTML = `
       <div class="dt-top">
-        <input type="text" class="dt-search" placeholder="Search language or text...">
+        <input type="text" class="dt-search" placeholder="Search, or id=/lang=/text=/pairid=...">
         <label class="dt-show-selected-label"><input type="checkbox" class="dt-show-selected"> Show selected</label>
+        <button type="button" class="dt-clear-selection">Clear selection</button>
         <span class="dt-count"></span>
       </div>
       <div class="dt-scroll">
@@ -58,7 +83,6 @@ export class DataTable {
               <th data-key="pairId">PairId</th>
               <th>Type</th>
               <th>Token strings</th>
-              <th>Distance</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -88,6 +112,8 @@ export class DataTable {
       this._render();
       this._onToggleShowSelectedOnly(e.target.checked);
     });
+    this.container.querySelector('.dt-clear-selection').addEventListener('click', () => this._onClearSelection());
+    this.container.querySelector('.dt-clear-selection').disabled = true;
     this.container.querySelectorAll('th[data-key]').forEach(th => {
       th.addEventListener('click', () => this._sortBy(th.dataset.key));
     });
@@ -104,6 +130,7 @@ export class DataTable {
   setPoints(points) {
     this.points = points;
     this._pins = [];
+    this.container.querySelector('.dt-clear-selection').disabled = true;
     this._highlightedRowId = null;
     this._search = '';
     this._searchInput.value = '';
@@ -143,6 +170,7 @@ export class DataTable {
   // that row is already on-screen.
   setPins(pins) {
     this._pins = pins;
+    this.container.querySelector('.dt-clear-selection').disabled = pins.length === 0;
     const focused = pins.find(p => p.focused);
     if (focused) this._pageToRow(focused.point.id);
     this._render();
@@ -175,10 +203,18 @@ export class DataTable {
     if (transPin) {
       rows = this.points.filter(p => p.groupKey === transPin.point.groupKey);
     } else {
-      const q = this._search.trim().toLowerCase();
-      rows = q
-        ? this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q))
-        : this.points;
+      const parsed = parseSearchQuery(this._search);
+      if (!parsed) {
+        rows = this.points;
+      } else if (parsed.key) {
+        const q = parsed.value.toLowerCase();
+        rows = EXACT_MATCH_FILTER_KEYS.has(parsed.key)
+          ? this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase() === q)
+          : this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase().includes(q));
+      } else {
+        const q = parsed.value.toLowerCase();
+        rows = this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q));
+      }
     }
     if (this._showSelectedOnly) {
       const pinnedIds = new Set(this._pins.map(p => p.point.id));
@@ -218,9 +254,6 @@ export class DataTable {
       if (pin && pin.detail.tokens) {
         pin.detail.tokenPoints.forEach(t => this.tbody.appendChild(this._renderTokenRow(t)));
       }
-      if (pin && pin.detail.neighbors) {
-        pin.detail.neighborRows.forEach(n => this.tbody.appendChild(this._renderNeighborRow(n)));
-      }
     });
   }
 
@@ -242,7 +275,6 @@ export class DataTable {
       <td>${escapeHtml(String(p.pairId ?? ''))}</td>
       <td><span class="dt-type dt-type-sentence">sentence</span></td>
       <td class="dt-text">${p.hasTokens ? escapeHtml(p.tokenTexts.join(', ')) : ''}</td>
-      <td></td>
       <td class="dt-actions-cell"></td>
     `;
 
@@ -260,8 +292,6 @@ export class DataTable {
       actionsCell.appendChild(renderActionsMenu(p, pin.detail, canTranslate, {
         onToggleTranslations: pt => this._onToggleTranslations(pt),
         onToggleTokens: pt => this._onToggleTokens(pt),
-        onToggleNeighbors: pt => this._onToggleNeighbors(pt),
-        onChangeK: (pt, k) => this._onChangeNeighborsK(pt, k),
       }, 'table'));
     }
 
@@ -281,27 +311,8 @@ export class DataTable {
       <td><span class="dt-type dt-type-token">token</span></td>
       <td></td>
       <td></td>
-      <td></td>
     `;
     tr.addEventListener('click', () => this._onRowClick({ ...t, type: 'token' }));
-    return tr;
-  }
-
-  _renderNeighborRow(n) {
-    const tr = document.createElement('tr');
-    tr.className = 'dt-row dt-row-neighbor';
-    tr.innerHTML = `
-      <td></td>
-      <td>${escapeHtml(String(n.id))}</td>
-      <td>${escapeHtml(n.lang)}</td>
-      <td class="dt-text" title="${escapeHtml(n.text ?? '')}">${escapeHtml(n.text ?? '')}</td>
-      <td></td>
-      <td><span class="dt-type dt-type-neighbor">neighbor</span></td>
-      <td></td>
-      <td>${n.distance.toFixed(4)}</td>
-      <td></td>
-    `;
-    tr.addEventListener('click', () => this._onRowClick({ ...n, type: 'neighbor' }));
     return tr;
   }
 }
