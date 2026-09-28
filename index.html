@@ -35,22 +35,76 @@
     }
   ]
 }</pre>
-        <p><code>tokenVectors</code> is optional — if present, selecting this point in the data table reveals a "Show tokens" action, projecting its tokens into the same UMAP space as the main plot.</p>
+        <p><code>tokenVectors</code> is optional — if present, selecting this point in the data table reveals a "Show tokens" action, projecting its tokens into the same UMAP space as the main plot. They only make sense if they come from the same model/layer/pooling as <code>vector</code> — token vectors from a different embedding space will plot in meaningless positions.</p>
         <p><code>vector</code> can be any length, but every point must have the same length.</p>
         <p><code>pairId</code> is optional — points sharing one are treated as translations of each other (isolated together on click). Omit it entirely if your data isn't parallel; each point will isolate alone instead.</p>
         <p><code>dim</code> / <code>lang_codes</code> are inferred automatically if omitted.</p>
+        <p>Floats only need ~6 decimal places — embeddings are almost always float32 under the hood (~7 significant digits), so full float64 precision just bloats the file for no benefit.</p>
+        <p>Size guidance: both file size and UMAP fit time scale with points × dim, so keep datasets in the thousands of points rather than hundreds of thousands.</p>
       </div>
       <label for="method-select">Projection method:</label>
+      <button type="button" id="projection-caveats-toggle" title="What this plot can't tell you">?</button>
       <select id="method-select">
         <option value="umap">UMAP</option>
         <option value="tsne">t-SNE</option>
       </select>
+      <div id="projection-caveats">
+        <p>What this plot can't tell you — both UMAP and t-SNE only try to
+        preserve <em>local</em> neighborhoods, so:</p>
+        <ul>
+          <li><strong>Distance between separate clusters isn't meaningful.</strong>
+          Two clusters drawn far apart aren't necessarily "more different"
+          than two drawn close together — only which points are near each
+          other within a cluster is (approximately) preserved.</li>
+          <li><strong>Cluster size/density on screen ≠ density in the real
+          embedding.</strong> t-SNE especially tends to draw similarly-sized,
+          evenly-spaced blobs regardless of how tight or spread out the
+          original high-dimensional cluster actually was.</li>
+          <li><strong>The layout is hyperparameter-dependent.</strong>
+          <code>n_neighbors</code>/<code>perplexity</code> control the
+          local-vs-global tradeoff directly — a different value can visibly
+          reshape, split, or merge clusters. What you're looking at is
+          <em>a</em> view of the structure under the current settings, not
+          <em>the</em> structure.</li>
+          <li><strong>The fixed random seed makes this reproducible, not
+          "correct."</strong> The same settings always give the same
+          layout, but a different seed (not exposed here) could give a
+          different one just as valid.</li>
+          <li><strong>"Show tokens" projects into an already-fit space.</strong>
+          New points (a sentence's tokens) are approximately fit into the
+          existing UMAP space via <code>.transform()</code> rather than
+          being part of the original fit, so they're inherently less
+          reliable than the sentence points themselves.</li>
+        </ul>
+      </div>
       <label for="metric-select">Distance metric:</label>
       <select id="metric-select">
         <option value="euclidean">euclidean</option>
         <option value="cosine">cosine</option>
         <option value="manhattan">manhattan</option>
+        <option value="chebyshev">chebyshev</option>
+        <option value="correlation">correlation</option>
+        <option value="braycurtis">braycurtis</option>
+        <option value="canberra">canberra</option>
       </select>
+      <div class="param-row">
+        <div class="param-field">
+          <label for="umap-n-neighbors" title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against.">neighbors:</label>
+          <input type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
+        </div>
+        <div class="param-field">
+          <label for="umap-min-dist" title="How tightly points are allowed to pack together (0 = tightest).">min_dist:</label>
+          <input type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
+        </div>
+        <div class="param-field">
+          <label for="tsne-perplexity" title="Roughly, the number of close neighbors each point is expected to have.">perplexity:</label>
+          <input type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
+        </div>
+      </div>
+      <div class="param-field">
+        <label for="tsne-learning-rate" title="Leave blank for scikit-learn's automatic default.">learning_rate (blank = auto):</label>
+        <input type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
+      </div>
       <button type="button" id="refit-button">Refit</button>
       <label for="label-select">Label on hover:</label>
       <select id="label-select">
@@ -66,8 +120,6 @@
       </select>
     </div>
     <div id="status">Loading...</div>
-    <button type="button" id="copy-link-button" title="Copy a shareable link to the current view (method, metric, label, selection)">Copy link</button>
-    <span id="copy-link-feedback"></span>
 
     <div id="lang-filter-controls">
       <label><input type="checkbox" id="family-color-toggle" checked> Color by language family</label>

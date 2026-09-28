@@ -7,7 +7,6 @@ import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
 import { LangFilter } from './lang-filter.js';
-import { readUrlState, writeUrlState } from './url-state.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
 
 const BACKEND_URL = 'http://localhost:8500';
@@ -23,9 +22,8 @@ class App {
         onRowClick: row => this.onSelectRow(row),
         onToggleTranslations: point => this.onToggleTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
-        onToggleNeighbors: point => this.onToggleNeighbors(point),
-        onChangeNeighborsK: (point, k) => this.onChangeNeighborsK(point, k),
         onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
+        onClearSelection: () => this.clearSelection(),
       }
     );
     this.langFilter = new LangFilter(
@@ -35,28 +33,12 @@ class App {
     this.points = [];
     this._selection = [];           // ordered array of pinned ids, insertion order
     this._focusedId = null;
-    this._detailState = new Map();  // id -> {translations, tokens, tokenPoints, neighbors, neighborsK, neighborRows}
+    this._detailState = new Map();  // id -> {translations, tokens, tokenPoints}
     this._pinColors = new Map();    // id -> color string
-    this._pendingSelectionIds = null;
   }
 
   async init() {
     this.view = new ProjectionView('projection');
-    this.view._onBackgroundClick = () => this.onBackgroundClick();
-
-    // Restore shareable state from the URL (see url-state.js) before the
-    // first fetch, so method/metric are right from the initial load and a
-    // selection can be re-applied once points exist.
-    const urlState = readUrlState();
-    if (urlState.method) document.getElementById('method-select').value = urlState.method;
-    if (urlState.metric) document.getElementById('metric-select').value = urlState.metric;
-    if (urlState.labelBy) {
-      document.getElementById('label-select').value = urlState.labelBy;
-      this.view.setLabelBy(urlState.labelBy);
-    }
-    if (urlState.ids) {
-      this._pendingSelectionIds = urlState.ids.split(',').filter(Boolean);
-    }
 
     document.getElementById('file-input')
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
@@ -66,10 +48,16 @@ class App {
       .addEventListener('change', () => this._refresh());
     document.getElementById('metric-select')
       .addEventListener('change', () => this._refresh());
+    // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
+    // auto-refresh on change — editing more than one before blurring away
+    // would fire a _refresh() per field, and an in-flight response's
+    // "reflect the effective params back" step (see _loadDataset) could
+    // then clobber a value the user typed into another field afterward.
+    // Refit is the one explicit trigger for all of them.
     document.getElementById('refit-button')
       .addEventListener('click', () => this._refresh());
     document.getElementById('label-select')
-      .addEventListener('change', e => { this.view.setLabelBy(e.target.value); this._syncUrl(); });
+      .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
       .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
     document.getElementById('fisheye-style-select')
@@ -83,62 +71,31 @@ class App {
     document.getElementById('lang-search').disabled = document.getElementById('family-color-toggle').checked;
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
+    document.getElementById('projection-caveats-toggle')
+      .addEventListener('click', () => this._toggleProjectionCaveats());
     document.getElementById('projection-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('projection-panel'));
     document.getElementById('data-table-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
-    document.getElementById('copy-link-button')
-      .addEventListener('click', () => this._copyLink());
     this._initLayoutConfig();
     this._initResizeHandle();
     installActionsMenuOutsideClickHandler();
 
     await this._refresh();
-    await this._applyPendingSelection();
   }
 
-  // Reflects the currently shareable state (method, metric, label-by,
-  // and the pinned id set) into the URL query string. Called at the end
-  // of every state-changing action so a "Copy link" click always hands
-  // off exactly what's currently pinned.
-  _syncUrl() {
-    const state = {
-      method: document.getElementById('method-select').value,
-      metric: document.getElementById('metric-select').value,
-      labelBy: document.getElementById('label-select').value,
+  _umapParams() {
+    return {
+      n_neighbors: document.getElementById('umap-n-neighbors').value,
+      min_dist: document.getElementById('umap-min-dist').value,
     };
-    if (this._selection.length) state.ids = this._selection.map(String).join(',');
-    writeUrlState(state);
   }
 
-  // Re-pins every id from a restored URL, once points from the initial
-  // load are available. Only runs once — subsequent refreshes reset
-  // selection deliberately and shouldn't resurrect a stale link's pins.
-  // Ids are re-pinned in URL order, so the last one ends up focused
-  // (_togglePin always focuses whatever it just pinned) — matching
-  // "last = focused" from the design doc, without needing to reorder
-  // anything. Per-pin translations/tokens/neighbors flags are NOT
-  // restored (see SELECTION-STATE.md) — every restored pin starts with
-  // all three off.
-  async _applyPendingSelection() {
-    if (!this._pendingSelectionIds) return;
-    const ids = this._pendingSelectionIds;
-    this._pendingSelectionIds = null;
-    for (const id of ids) {
-      const point = this.points.find(p => String(p.id) === id);
-      if (point) this._togglePin(point);
-    }
-  }
-
-  async _copyLink() {
-    const feedback = document.getElementById('copy-link-feedback');
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      feedback.textContent = 'Copied!';
-    } catch {
-      feedback.textContent = 'Copy failed';
-    }
-    setTimeout(() => { feedback.textContent = ''; }, 1500);
+  _tsneParams() {
+    return {
+      perplexity: document.getElementById('tsne-perplexity').value,
+      learning_rate: document.getElementById('tsne-learning-rate').value,
+    };
   }
 
   // Layout config panel: lets the sidebar/projection/table each be hidden
@@ -270,6 +227,11 @@ class App {
     el.style.display = el.style.display === 'block' ? 'none' : 'block';
   }
 
+  _toggleProjectionCaveats() {
+    const el = document.getElementById('projection-caveats');
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+  }
+
   // Shows/hides the full-screen loading overlay used around every backend
   // call — a visible spinner instead of just the (still-updated) status
   // text, since a UMAP/t-SNE refit or a token projection can take a while.
@@ -327,6 +289,7 @@ class App {
   async _refresh() {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
+    const hyperparams = method === 'umap' ? this._umapParams() : this._tsneParams();
     document.getElementById('status').textContent = `Running ${method} (${metric})...`;
     this._setLoading(true, `Running ${method} (${metric})...`);
 
@@ -334,7 +297,7 @@ class App {
     try {
       [meta, proj] = await Promise.all([
         this.backend.fetchPoints(),
-        this.backend.fetchProjection(method, metric),
+        this.backend.fetchProjection(method, metric, hyperparams),
       ]);
     } catch (err) {
       this._setLoading(false);
@@ -374,11 +337,23 @@ class App {
     document.getElementById('status').textContent =
       `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}`;
 
+    // The backend clamps out-of-range hyperparams (e.g. n_neighbors/perplexity
+    // past the dataset's point count) — reflect whatever it actually used back
+    // into the inputs so they never silently disagree with the plot.
+    if (proj.params) {
+      if (proj.method === 'umap') {
+        document.getElementById('umap-n-neighbors').value = proj.params.n_neighbors;
+        document.getElementById('umap-min-dist').value = proj.params.min_dist;
+      } else {
+        document.getElementById('tsne-perplexity').value = proj.params.perplexity;
+        document.getElementById('tsne-learning-rate').value = proj.params.learning_rate === 'auto' ? '' : proj.params.learning_rate;
+      }
+    }
+
     this.langFilter.setLangs(meta.lang_codes);
     this.table.setPoints(this.points);
     this.view.update(this.points, d => this.onCanvasClickPoint(d));
     this._renderFamilyLegend();
-    this._syncUrl();
   }
 
   // Rebuilds the sidebar's family-color legend from whatever families are
@@ -461,14 +436,6 @@ class App {
       this.table.highlightRow(row.id);
       return;
     }
-    if (row.type === 'neighbor') {
-      // Neighbor rows carry only {id, lang, text, distance} — jump to the
-      // full point object so pin state (groupKey, hasTokens, ...) stays
-      // consistent with canvas/table-driven pinning.
-      const full = this.points.find(p => p.id === row.id);
-      if (full) this._togglePin(full);
-      return;
-    }
     this._togglePin(row);
   }
 
@@ -491,7 +458,6 @@ class App {
       this._selection.push(point.id);
       this._detailState.set(point.id, {
         translations: false, tokens: false, tokenPoints: [],
-        neighbors: false, neighborsK: 5, neighborRows: [],
       });
       this._focusedId = point.id;
     } else {
@@ -503,10 +469,9 @@ class App {
       }
     }
     this._syncPins();
-    this._syncUrl();
   }
 
-  onBackgroundClick() {
+  clearSelection() {
     if (this._selection.length === 0) return;
     this._selection = [];
     this._focusedId = null;
@@ -514,7 +479,6 @@ class App {
     this._pinColors.clear();
     this.view.clearHighlight();
     this._syncPins();
-    this._syncUrl();
   }
 
   // Translations only exist for exactly one pinned point at a time — see
@@ -528,7 +492,6 @@ class App {
     if (detail.translations) this.view.highlightParallel(point.groupKey);
     else this.view.clearHighlight();
     this._syncPins();
-    this._syncUrl();
   }
 
   // Tokens are independent per pinned point. Token projection only exists
@@ -544,7 +507,6 @@ class App {
       detail.tokens = false;
       detail.tokenPoints = [];
       this._syncPins();
-      this._syncUrl();
       return;
     }
 
@@ -563,7 +525,7 @@ class App {
     this._setLoading(true, 'Computing token projection...');
     let proj;
     try {
-      proj = await this.backend.fetchTokenProjection(point.id, metric);
+      proj = await this.backend.fetchTokenProjection(point.id, metric, this._umapParams());
     } catch (err) {
       this._setLoading(false);
       document.getElementById('status').textContent = err.message;
@@ -578,55 +540,8 @@ class App {
       id: `${point.id}::${i}`, lang: point.lang, family: point.family, text: t.token, x: t.x, y: t.y,
     }));
     this._syncPins();
-    this._syncUrl();
   }
 
-  // Neighbors are independent per pinned point. Computed on the full
-  // embedding vectors (server.py's /neighbors), so unlike tokens this
-  // never needs to force a UMAP switch.
-  async onToggleNeighbors(point) {
-    const detail = this._detailState.get(point.id);
-    if (!detail) return;
-    if (detail.neighbors) {
-      detail.neighbors = false;
-      detail.neighborRows = [];
-      this._syncPins();
-      this._syncUrl();
-      return;
-    }
-
-    const metric = document.getElementById('metric-select').value;
-    const k = detail.neighborsK;
-    this._setLoading(true, 'Finding nearest neighbors...');
-    let res;
-    try {
-      res = await this.backend.fetchNeighbors(point.id, k, metric);
-    } catch (err) {
-      this._setLoading(false);
-      document.getElementById('status').textContent = err.message;
-      return;
-    }
-    this._setLoading(false);
-
-    const liveDetail = this._detailState.get(point.id);
-    if (!liveDetail) return;
-    liveDetail.neighbors = true;
-    liveDetail.neighborRows = res.neighbors;
-    this._syncPins();
-    this._syncUrl();
-  }
-
-  // Changing k while neighbors are already shown re-fetches immediately
-  // at the new count rather than just remembering it for next time.
-  async onChangeNeighborsK(point, k) {
-    const detail = this._detailState.get(point.id);
-    if (!detail) return;
-    detail.neighborsK = k;
-    if (!detail.neighbors) { this._syncPins(); return; }
-    detail.neighbors = false;
-    this._syncPins();
-    await this.onToggleNeighbors(point);
-  }
 }
 
 

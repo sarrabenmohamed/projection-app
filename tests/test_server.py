@@ -267,6 +267,81 @@ def test_project_tsne_accepts_metric(client):
     assert len(res.json()["points"]) == len(SAMPLE_DATASET["points"])
 
 
+def test_project_umap_accepts_n_neighbors_and_min_dist(client):
+    res = client.get("/project?method=umap&n_neighbors=2&min_dist=0.5")
+    assert res.status_code == 200
+    assert res.json()["params"] == {"n_neighbors": 2, "min_dist": 0.5}
+
+
+def test_project_umap_clamps_n_neighbors_to_available_points(client):
+    # SAMPLE_DATASET has 7 points, so n_neighbors must clamp to 6
+    res = client.get("/project?method=umap&n_neighbors=100")
+    assert res.status_code == 200
+    assert res.json()["params"]["n_neighbors"] == len(SAMPLE_DATASET["points"]) - 1
+
+
+def test_project_umap_refits_when_n_neighbors_or_min_dist_changes(client, monkeypatch):
+    fit_calls = []
+    orig_fit = server.umap.UMAP.fit
+
+    def spy_fit(self, X, *a, **kw):
+        fit_calls.append(1)
+        return orig_fit(self, X, *a, **kw)
+
+    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+
+    client.get("/project?method=umap&n_neighbors=2&min_dist=0.1")
+    client.get("/project?method=umap&n_neighbors=2&min_dist=0.1")
+    assert len(fit_calls) == 1  # same params reuse the cached reducer
+
+    client.get("/project?method=umap&n_neighbors=3&min_dist=0.1")
+    assert len(fit_calls) == 2  # n_neighbors change invalidates the cache
+
+    client.get("/project?method=umap&n_neighbors=3&min_dist=0.9")
+    assert len(fit_calls) == 3  # min_dist change invalidates the cache
+
+
+def test_project_umap_rejects_out_of_range_hyperparams(client):
+    assert client.get("/project?method=umap&n_neighbors=0").status_code == 422
+    assert client.get("/project?method=umap&min_dist=-0.1").status_code == 422
+    assert client.get("/project?method=umap&min_dist=1.1").status_code == 422
+
+
+def test_project_tsne_accepts_perplexity_and_learning_rate(client):
+    res = client.get("/project?method=tsne&perplexity=3&learning_rate=100")
+    assert res.status_code == 200
+    assert res.json()["params"] == {"perplexity": 3.0, "learning_rate": 100.0}
+
+
+def test_project_tsne_clamps_perplexity_to_available_points(client):
+    res = client.get("/project?method=tsne&perplexity=500")
+    assert res.status_code == 200
+    assert res.json()["params"]["perplexity"] == len(SAMPLE_DATASET["points"]) - 1
+
+
+def test_project_tsne_rejects_out_of_range_hyperparams(client):
+    assert client.get("/project?method=tsne&perplexity=0").status_code == 422
+    assert client.get("/project?method=tsne&learning_rate=0").status_code == 422
+
+
+def test_project_tokens_uses_matching_n_neighbors_and_min_dist(client, monkeypatch):
+    fit_calls = []
+    orig_fit = server.umap.UMAP.fit
+
+    def spy_fit(self, X, *a, **kw):
+        fit_calls.append(1)
+        return orig_fit(self, X, *a, **kw)
+
+    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+
+    client.get("/project?method=umap&n_neighbors=2&min_dist=0.2")
+    client.get("/project/tokens/en-1?n_neighbors=2&min_dist=0.2")
+    assert len(fit_calls) == 1  # matching params reuse the same cached reducer
+
+    client.get("/project/tokens/en-1?n_neighbors=3&min_dist=0.2")
+    assert len(fit_calls) == 2  # mismatched params force a refit
+
+
 def test_project_tokens_success(client):
     res = client.get("/project/tokens/en-1")
     assert res.status_code == 200

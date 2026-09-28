@@ -11,12 +11,25 @@ export class BackendClient {
     return this._request('/points');
   }
 
-  fetchProjection(method, metric) {
-    return this._request(`/project?method=${method}&metric=${metric}`);
+  // hyperparams is {n_neighbors, min_dist} for umap or {perplexity, learning_rate}
+  // for tsne — any key can be omitted/undefined to let the backend pick its default.
+  fetchProjection(method, metric, hyperparams = {}) {
+    const params = new URLSearchParams({ method, metric });
+    for (const [k, v] of Object.entries(hyperparams)) {
+      if (v !== undefined && v !== null && v !== '') params.set(k, v);
+    }
+    return this._request(`/project?${params}`);
   }
 
-  fetchTokenProjection(id, metric) {
-    return this._request(`/project/tokens/${encodeURIComponent(id)}?metric=${metric}`);
+  // umapParams is {n_neighbors, min_dist} — must match whatever the main
+  // projection is currently using so the token vectors land in the same
+  // fitted UMAP space (see server.py's _get_umap_reducer).
+  fetchTokenProjection(id, metric, umapParams = {}) {
+    const params = new URLSearchParams({ metric });
+    for (const [k, v] of Object.entries(umapParams)) {
+      if (v !== undefined && v !== null && v !== '') params.set(k, v);
+    }
+    return this._request(`/project/tokens/${encodeURIComponent(id)}?${params}`);
   }
 
   fetchNeighbors(id, k, metric) {

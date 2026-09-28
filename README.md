@@ -35,21 +35,21 @@ No HuggingFace access or GPU needed to try the app: open it, click "Load
 embeddings JSON", and pick `examples/sample_embeddings.json` — 9 toy
 sentences (3 languages × 3 parallel translations, random but
 language-clustered 8-dim vectors) with token vectors included, so every
-feature (translations, tokens, neighbors) has something to show.
+feature (translations, tokens) has something to show.
 
 ## Using it
 
 - **Pin a point** — check the checkbox in a data-table row (its only pin
   control; clicking elsewhere on the row does nothing), or click it on
-  the plot. Pin more than one to compare them. Click empty canvas space
-  to clear every pin at once.
+  the plot. Pin more than one to compare them. Use the data table's
+  **Clear selection** button to clear every pin at once — clicking empty
+  canvas space no longer does this, so an incidental click doesn't wipe
+  your selection.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
-  — independently toggle its tokens and nearest neighbors.
-  **Translations** are the one exception: only available while exactly
-  one point is pinned. Tokens overlay that sentence's token embeddings
-  in the same UMAP space (auto-switches method to UMAP if needed);
-  neighbors lists the *k* nearest points by full-vector distance (id,
-  text, distance), with *k* set inline in the menu.
+  — independently toggle its tokens. **Translations** are the one
+  exception: only available while exactly one point is pinned. Tokens
+  overlay that sentence's token embeddings in the same UMAP space
+  (auto-switches method to UMAP if needed).
 - **Show selected** (data table) filters the table down to just the
   pinned rows *and* isolates the plot to just those points — takes
   precedence over an active translations view rather than combining
@@ -74,6 +74,12 @@ feature (translations, tokens, neighbors) has something to show.
   languages to get real colors, with everything else neutral gray. The
   two modes are mutually exclusive; the language search is disabled
   while family coloring is active.
+- **Search the data table** — a bare query matches language or text by
+  substring; prefix it with a column name to target just that column
+  instead: `id=`, `lang=`, `text=`, or `pairid=`. `id=`/`pairid=` require
+  an exact match (so `pairid=1` doesn't also pull in "10", "11", ...);
+  `lang=`/`text=` still match by substring. Ephemeral — clears whenever
+  a new dataset loads, not part of the shareable link.
 - **Resize the data table** — drag the thin handle between the plot and
   the table; the split is remembered across reloads.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
@@ -81,10 +87,6 @@ feature (translations, tokens, neighbors) has something to show.
   FLORES-200 without restarting the server — reloading the full default
   dataset from its cache file can take a while (it's several GB), so this
   can take up to a minute or two.
-- **Copy link** — copies a URL with the current method/metric/label and
-  pinned point ids as query params; opening it re-pins the same points
-  (translations/tokens/neighbors toggles are not restored — every
-  re-pinned point starts with those off).
 
 ## Troubleshooting
 

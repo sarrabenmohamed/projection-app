@@ -10,7 +10,7 @@
 // clicked.
 let openMenuId = null; // at most one Actions menu open per container (keyed by `${ownerKey}:${point.id}`) at a time
 
-export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens, onToggleNeighbors, onChangeK }, ownerKey) {
+export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens }, ownerKey) {
   const wrap = document.createElement('span');
   wrap.className = 'actions-menu';
 
@@ -40,26 +40,6 @@ export function renderActionsMenu(point, detail, canTranslate, { onToggleTransla
       onToggle: () => onToggleTokens(point),
     }));
   }
-
-  const neighborsLine = _menuLine({
-    label: 'Neighbors',
-    checked: detail.neighbors,
-    disabled: false,
-    onToggle: () => onToggleNeighbors(point),
-  });
-  const kInput = document.createElement('input');
-  kInput.type = 'number';
-  kInput.className = 'actions-menu-k';
-  kInput.min = '1';
-  kInput.max = '100';
-  kInput.value = String(detail.neighborsK);
-  kInput.addEventListener('click', e => e.stopPropagation());
-  kInput.addEventListener('change', () => {
-    const n = parseInt(kInput.value, 10);
-    onChangeK(point, Number.isFinite(n) && n > 0 ? n : 5);
-  });
-  neighborsLine.appendChild(kInput);
-  menu.appendChild(neighborsLine);
 
   const divider = document.createElement('div');
   divider.className = 'actions-menu-divider';

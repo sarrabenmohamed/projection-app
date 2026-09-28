@@ -7,8 +7,8 @@ Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
     POST /dataset/reset           reload the default FLORES-200 dataset, discarding whatever's loaded.
     GET  /points                  point metadata only, no vectors (includes each point's language family).
-    GET  /project                 2D coords for all points (?method=umap|tsne&metric=cosine|euclidean|manhattan).
-    GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric= must match).
+    GET  /project                 2D coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
+    GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist= must match).
     GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
 """
 
@@ -22,7 +22,7 @@ import sys
 import types
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, Optional
 
 # umap-learn unconditionally imports its optional ParametricUMAP submodule,
 # which unconditionally does `import tensorflow`. On machines where the
@@ -95,7 +95,11 @@ app.add_middleware(
 )
 
 DATASET: dict = {"data": None, "generation": 0}
-_REDUCER_CACHE: dict = {"generation": -1, "metric": None, "reducer": None}
+_REDUCER_CACHE: dict = {"generation": -1, "metric": None, "n_neighbors": None, "min_dist": None, "reducer": None}
+UMAP_N_NEIGHBORS_DEFAULT = 15
+UMAP_MIN_DIST_DEFAULT = 0.1
+TSNE_PERPLEXITY_DEFAULT = 30
+TSNE_LEARNING_RATE_DEFAULT = "auto"
 
 
 def validate_and_normalize(raw: dict) -> dict:
@@ -250,32 +254,41 @@ def get_points() -> dict:
     }
 
 
-def _fit_umap(vectors: np.ndarray, metric: str) -> umap.UMAP:
+def _fit_umap(vectors: np.ndarray, metric: str, n_neighbors: int, min_dist: float) -> umap.UMAP:
     n = len(vectors)
-    n_neighbors = max(1, min(15, n - 1))
-    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1, random_state=42, metric=metric)
+    n_neighbors = max(1, min(n_neighbors, n - 1))
+    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=min_dist, random_state=42, metric=metric)
     reducer.fit(vectors)
     return reducer
 
 
-def _get_umap_reducer(d: dict, metric: str) -> umap.UMAP:
-    """Fits once per (dataset "generation", metric) and reuses the same
-    reducer after that — both so repeated /project?method=umap calls with
-    the same metric skip refitting, and so /project/tokens/{id} can
-    .transform() token vectors into the exact same space the sentence
-    points were fit into for that metric."""
-    if _REDUCER_CACHE["generation"] != DATASET["generation"] or _REDUCER_CACHE["metric"] != metric:
+def _get_umap_reducer(d: dict, metric: str, n_neighbors: int, min_dist: float) -> umap.UMAP:
+    """Fits once per (dataset "generation", metric, n_neighbors, min_dist) and
+    reuses the same reducer after that — both so repeated /project?method=umap
+    calls with the same params skip refitting, and so /project/tokens/{id} can
+    .transform() token vectors into the exact same space the sentence points
+    were fit into for that combination (callers must pass the same metric/
+    n_neighbors/min_dist the main projection is currently using)."""
+    cache_key = (DATASET["generation"], metric, n_neighbors, min_dist)
+    current_key = (_REDUCER_CACHE["generation"], _REDUCER_CACHE["metric"], _REDUCER_CACHE["n_neighbors"], _REDUCER_CACHE["min_dist"])
+    if cache_key != current_key:
         vectors = np.array([p["vector"] for p in d["points"]], dtype=np.float32)
-        _REDUCER_CACHE["reducer"] = _fit_umap(vectors, metric)
+        _REDUCER_CACHE["reducer"] = _fit_umap(vectors, metric, n_neighbors, min_dist)
         _REDUCER_CACHE["generation"] = DATASET["generation"]
         _REDUCER_CACHE["metric"] = metric
+        _REDUCER_CACHE["n_neighbors"] = n_neighbors
+        _REDUCER_CACHE["min_dist"] = min_dist
     return _REDUCER_CACHE["reducer"]
 
 
 @app.get("/project")
 def project(
     method: Literal["umap", "tsne"] = "umap",
-    metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean",
+    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
+    n_neighbors: Optional[int] = Query(default=None, ge=1, le=200),
+    min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    perplexity: Optional[float] = Query(default=None, gt=0, le=500),
+    learning_rate: Optional[float] = Query(default=None, gt=0),
 ) -> dict:
     d = _current_dataset()
     points = d["points"]
@@ -284,16 +297,22 @@ def project(
         raise HTTPException(status_code=400, detail="need at least 2 points to project")
 
     if method == "umap":
-        reducer = _get_umap_reducer(d, metric)
+        nn = min(n_neighbors or UMAP_N_NEIGHBORS_DEFAULT, n - 1)
+        md = UMAP_MIN_DIST_DEFAULT if min_dist is None else min_dist
+        reducer = _get_umap_reducer(d, metric, nn, md)
         coords = reducer.embedding_
+        params = {"n_neighbors": nn, "min_dist": md}
     else:
         vectors = np.array([p["vector"] for p in points], dtype=np.float32)
-        perplexity = max(1, min(30, n - 1))
-        reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, init="pca", metric=metric)
+        perp = max(1, min(perplexity or TSNE_PERPLEXITY_DEFAULT, n - 1))
+        lr = TSNE_LEARNING_RATE_DEFAULT if learning_rate is None else learning_rate
+        reducer = TSNE(n_components=2, perplexity=perp, learning_rate=lr, random_state=42, init="pca", metric=metric)
         coords = reducer.fit_transform(vectors)
+        params = {"perplexity": perp, "learning_rate": lr}
 
     return {
         "method": method,
+        "params": params,
         "points": [{"id": p["id"], "x": float(coords[i][0]), "y": float(coords[i][1])} for i, p in enumerate(points)],
     }
 
@@ -302,7 +321,7 @@ def project(
 def neighbors(
     point_id: str,
     k: int = Query(default=5, ge=1, le=100),
-    metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean",
+    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
 ) -> dict:
     """Nearest neighbors by distance in the full embedding space (not the 2D
     projection) — independent of whatever method/metric the plot is using."""
@@ -329,7 +348,12 @@ def neighbors(
 
 
 @app.get("/project/tokens/{point_id}")
-def project_tokens(point_id: str, metric: Literal["cosine", "euclidean", "manhattan"] = "euclidean") -> dict:
+def project_tokens(
+    point_id: str,
+    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
+    n_neighbors: Optional[int] = Query(default=None, ge=1, le=200),
+    min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+) -> dict:
     d = _current_dataset()
     point = next((p for p in d["points"] if str(p["id"]) == point_id), None)
     if point is None:
@@ -341,7 +365,9 @@ def project_tokens(point_id: str, metric: Literal["cosine", "euclidean", "manhat
     if len(token_vectors) < 2:
         raise HTTPException(status_code=400, detail="need at least 2 tokens to project")
 
-    reducer = _get_umap_reducer(d, metric)
+    nn = min(n_neighbors or UMAP_N_NEIGHBORS_DEFAULT, len(d["points"]) - 1)
+    md = UMAP_MIN_DIST_DEFAULT if min_dist is None else min_dist
+    reducer = _get_umap_reducer(d, metric, nn, md)
     vectors = np.array([t["vector"] for t in token_vectors], dtype=np.float32)
     coords = reducer.transform(vectors)
 

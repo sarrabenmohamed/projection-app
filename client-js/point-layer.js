@@ -20,7 +20,11 @@
 
 const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
-const ISOLATED_OUT_OPACITY = 0;
+const ISOLATED_OUT_OPACITY = 0.3;
+// d3.schemeTableau10 with its trailing gray (#bab0ac) swapped for a cyan —
+// that gray reads as "dimmed/background" (see NEUTRAL_COLOR above), so a
+// family that landed on it was indistinguishable from an isolated-out point.
+const FAMILY_COLORS = [...d3.schemeTableau10.slice(0, 9), '#17becf'];
 const POINT_RADIUS = 5; // local-unit render radius before the 1/transform.k scale-compensation
 const FISHEYE_RELAX_ITERATIONS = 4;
 
@@ -94,7 +98,7 @@ export class PointLayer {
     this._showPinnedOnly = false;
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
-    this._familyColorScale = d3.scaleOrdinal(families, d3.schemeTableau10);
+    this._familyColorScale = d3.scaleOrdinal(families, FAMILY_COLORS);
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
   }
@@ -179,6 +183,7 @@ export class PointLayer {
   }
 
   _colorFor(d) {
+    if (this.isIsolatedOut(d)) return NEUTRAL_COLOR;
     if (this._familyModeEnabled) return this._familyColorScale(d.family);
     return this._selectedLangs.has(d.lang) ? this._langColorScale(d.lang) : NEUTRAL_COLOR;
   }
@@ -191,6 +196,7 @@ export class PointLayer {
   // — every point in family mode, or the language-filter's selected subset
   // otherwise.
   _isColored(d) {
+    if (this.isIsolatedOut(d)) return false;
     return this._familyModeEnabled || this._selectedLangs.has(d.lang);
   }
 
@@ -211,9 +217,11 @@ export class PointLayer {
     return this._baseOpacity(d);
   }
 
-  // Whether `d` is currently faded to fully invisible by an active
+  // Whether `d` is currently faded to background gray by an active
   // isolate — used by ProjectionView to keep hit-testing off points the
-  // user can't see (the quadtree still spatially indexes them).
+  // user isn't focused on (the quadtree still spatially indexes them),
+  // and by _colorFor/_isColored to render them as dimmed background
+  // rather than in their normal color.
   isIsolatedOut(d) {
     return this._isolateActive() && this._opacityTarget(d) === ISOLATED_OUT_OPACITY;
   }
