@@ -37,7 +37,7 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
   margin: 12px 0; padding: 6px 10px; font-size: 0.85em;
   background: #fff; border: 1px solid #ccc; border-radius: 4px;
 }
-#projection-params summary, #flores-controls summary { cursor: pointer; font-weight: 600; color: #333; }
+#projection-params summary, #flores-controls summary { cursor: pointer; color: #333; }
 #projection-params[open] summary, #flores-controls[open] summary { padding-bottom: 6px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
 #flores-controls textarea, #flores-controls input[type=text] { font-size: 0.8em; width: 100%; box-sizing: border-box; padding: 2px 4px; font-family: inherit; }
 #flores-load-button { font-size: 0.8em; width: 100%; margin-top: 8px; padding: 4px 0; cursor: pointer; }
