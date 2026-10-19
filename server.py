@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import logging
 import math
 import re
 import sys
@@ -249,7 +250,8 @@ def load_flores_dataset(raw: dict) -> dict:
         built = _load_or_build_dataset(_flores_cache_path(config), config, embedding_pipeline.build_dataset)
         normalized = validate_and_normalize(built)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not load FLORES-200: {e}") from e
+        logging.getLogger("uvicorn.error").exception("FLORES-200 load failed")
+        raise HTTPException(status_code=500, detail=f"Could not load FLORES-200: {type(e).__name__}: {e}") from e
     DATASET["data"] = normalized
     DATASET["generation"] += 1
     return {"n_points": len(normalized["points"]), "lang_codes": normalized["lang_codes"], "dim": normalized["dim"]}
