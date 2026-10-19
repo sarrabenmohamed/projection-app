@@ -14,7 +14,8 @@ step and package management).
 make run     # creates .venv, installs requirements (only when they change), starts the app
 make test    # runs the test suite
 ```
-Then open **http://localhost:8500** (`make run PORT=9000` to change it).
+It opens your browser at **http://localhost:8500** once the server is up
+(`make run PORT=9000` to change the port, `make run OPEN=0` to skip the browser).
 Requires Python 3.9+.
 
 For FLORES-200 loading, do the one-time Hugging Face setup (skip it if you
