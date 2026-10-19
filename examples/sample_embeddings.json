@@ -8,6 +8,11 @@
     "fr",
     "de"
   ],
+  "lang_families": {
+    "en": "Germanic",
+    "fr": "Romance",
+    "de": "Germanic"
+  },
   "points": [
     {
       "id": "en-0",

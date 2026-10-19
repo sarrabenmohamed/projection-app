@@ -99,6 +99,21 @@ feature (translations, tokens) has something to show.
   dataset from its cache file can take a while (it's several GB), so this
   can take up to a minute or two.
 
+## Language families
+
+"Color by language family" looks each language up in
+`resources/language_families.json`, generated from
+[Glottolog](https://github.com/glottolog/glottolog-cldf) (CC BY 4.0) and
+keyed by ISO 639-3 code, so any FLORES-style code (`deu_Latn` → `deu`) is
+covered. ISO 639-1 codes (`de`) and English names (`German`) also resolve,
+via aliases built from the SIL ISO 639-3 table. Indo-European is split into its main branches (Germanic,
+Romance, Slavic, ...); other families use Glottolog's top level. To
+refresh the file: `python3 scripts/build_language_families.py`.
+
+For your own language codes, add a `lang_families` map (or a per-point
+`family`) to the uploaded JSON — see the "?" next to *Load embeddings
+JSON*. Anything unknown is grouped as "Other".
+
 ## Troubleshooting
 
 - **"Can't reach the backend"** — start/check `uvicorn server:app --port 8500`.

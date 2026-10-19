@@ -22,6 +22,7 @@
   "layer": "any string (informational)",
   "dim": 768,
   "lang_codes": ["en", "de"],
+  "lang_families": {"en": "Germanic", "de": "Germanic"},
   "points": [
     {
       "id": "unique-string-or-number",
@@ -39,6 +40,7 @@
         <p><code>vector</code> can be any length, but every point must have the same length.</p>
         <p><code>pairId</code> is optional — points sharing one are treated as translations of each other (isolated together on click). Omit it entirely if your data isn't parallel; each point will isolate alone instead.</p>
         <p><code>dim</code> / <code>lang_codes</code> are inferred automatically if omitted.</p>
+        <p><code>lang_families</code> (language code &rarr; family name) and a per-point <code>family</code> are optional and only affect "Color by language family". Without them, codes such as <code>deu_Latn</code>, <code>deu</code>, <code>de</code> or <code>German</code> are looked up in Glottolog; anything unknown falls into "Other". A point's <code>family</code> beats <code>lang_families</code>, which beats Glottolog.</p>
         <p>Floats only need ~6 decimal places — embeddings are almost always float32 under the hood (~7 significant digits), so full float64 precision just bloats the file for no benefit.</p>
         <p>Size guidance: both file size and UMAP fit time scale with points × dim, so keep datasets in the thousands of points rather than hundreds of thousands.</p>
       </div>
