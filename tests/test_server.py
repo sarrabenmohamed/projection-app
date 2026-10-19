@@ -551,3 +551,17 @@ def test_flores_endpoint_500_and_keeps_dataset_when_build_fails(client, tmp_path
     assert res.status_code == 500
     assert "no HuggingFace auth" in res.json()["detail"]
     assert server.DATASET["data"] is before
+
+
+def test_server_serves_the_frontend(client):
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "Embedding Projection" in index.text
+    assert client.get("/client-js/app.js").status_code == 200
+    assert client.get("/css/style.css").status_code == 200
+    assert client.get("/examples/sample_embeddings.json").status_code == 200
+
+
+def test_server_does_not_expose_source_or_data(client):
+    for path in ("/server.py", "/data/", "/tests/test_server.py", "/.git/config", "/requirements.txt"):
+        assert client.get(path).status_code == 404
