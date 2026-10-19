@@ -66,7 +66,7 @@ export class BackendClient {
     try {
       res = await fetch(`${this.baseUrl}${path}`, options);
     } catch {
-      throw new Error(`Can't reach the backend (${this.baseUrl}) — run "uvicorn server:app --port 8500" first.`);
+      throw new Error(`Can't reach the backend (${this.baseUrl || window.location.origin}) — start it with "make run".`);
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

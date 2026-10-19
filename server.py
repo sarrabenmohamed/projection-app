@@ -44,6 +44,8 @@ if "tensorflow" not in sys.modules:
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import umap
 from sklearn.manifold import TSNE
@@ -528,3 +530,18 @@ def stats(req: StatsRequest) -> dict:
         },
         "language_pairs": language_pairs,
     }
+
+
+# The frontend is served by this same app (one process, one port, no CORS
+# needed). Only the static asset folders are mounted — never the project
+# root, which holds source, caches under data/ and .git.
+ROOT = Path(__file__).parent
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(ROOT / "index.html")
+
+
+for _folder in ("client-js", "css", "examples"):
+    app.mount(f"/{_folder}", StaticFiles(directory=ROOT / _folder), name=_folder)
