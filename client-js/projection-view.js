@@ -215,13 +215,21 @@ export class ProjectionView {
     if (d) this._onClickPoint?.(d);
   }
 
+  // A token point always shows its own token; the selected hover label
+  // (e.g. language) is appended as context rather than replacing it.
+  _overlayLabel(point) {
+    const token = String(point.text);
+    if (this._labelBy === 'text') return token;
+    return `${token} (${point[this._labelBy]})`;
+  }
+
   _onCanvasMouseMove(event) {
     this._updateFisheyeFocus(event);
 
     const overlayHit = this._overlayPointAt(event);
     if (overlayHit) {
       const rect = this.el.getBoundingClientRect();
-      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(overlayHit[this._labelBy]));
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, this._overlayLabel(overlayHit));
       this.canvas.style.cursor = 'default';
       this._hoveredId = null;
       this._requestDraw();
