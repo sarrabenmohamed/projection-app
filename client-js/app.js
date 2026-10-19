@@ -69,7 +69,7 @@ class App {
     document.getElementById('label-select')
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
-      .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
+      .addEventListener('change', e => this._setFisheye(e.target.checked));
     document.getElementById('fisheye-size')
       .addEventListener('input', e => {
         document.getElementById('fisheye-size-value').textContent = e.target.value;
@@ -122,6 +122,12 @@ class App {
       perplexity: document.getElementById('tsne-perplexity').value,
       learning_rate: document.getElementById('tsne-learning-rate').value,
     };
+  }
+
+  // The lens size/style controls only matter while the lens is on.
+  _setFisheye(enabled) {
+    this.view.setFisheyeEnabled(enabled);
+    document.getElementById('fisheye-options').hidden = !enabled;
   }
 
   // Every view (sidebar, projection, data table, statistics) can be
@@ -439,7 +445,7 @@ class App {
     fisheyeToggle.disabled = enabled;
     if (enabled) {
       fisheyeToggle.checked = false;
-      this.view.setFisheyeEnabled(false);
+      this._setFisheye(false);
     }
   }
 
