@@ -121,12 +121,14 @@
         <option value="family">Language family</option>
       </select>
       <label><input type="checkbox" id="fisheye-toggle"> Fisheye lens (drag the disk)</label>
-      <label for="fisheye-size" class="fisheye-size-label">Lens size: <span id="fisheye-size-value">110</span> px</label>
-      <input type="range" id="fisheye-size" min="40" max="300" step="5" value="110" data-tip="Radius of the fisheye disk in screen pixels.">
-      <select id="fisheye-style-select">
-        <option value="d3">Style: D3 (exponential)</option>
-        <option value="geometric">Style: Geometric (rational)</option>
-      </select>
+      <div id="fisheye-options" hidden>
+        <label for="fisheye-size" class="fisheye-size-label">Lens size: <span id="fisheye-size-value">110</span> px</label>
+        <input type="range" id="fisheye-size" min="40" max="300" step="5" value="110" data-tip="Radius of the fisheye disk in screen pixels.">
+        <select id="fisheye-style-select">
+          <option value="d3">Style: D3 (exponential)</option>
+          <option value="geometric">Style: Geometric (rational)</option>
+        </select>
+      </div>
     </div>
     <div id="status">Loading...</div>
 
