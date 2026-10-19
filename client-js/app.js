@@ -7,6 +7,7 @@ import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
 import { LangFilter } from './lang-filter.js';
+import { installTooltips } from './help-tips.js';
 import { StatsView } from './stats-view.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
 
@@ -88,6 +89,7 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
     document.getElementById('stats-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('stats-panel'));
+    installTooltips();
     this._initPanels();
     this._initResizeHandle();
     installActionsMenuOutsideClickHandler();
