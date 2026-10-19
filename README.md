@@ -4,27 +4,26 @@ A D3/canvas viewer for exploring high-dimensional embeddings (UMAP or
 t-SNE) in 2D — built around FLORES-200 parallel sentence embeddings, but
 accepts any embeddings JSON.
 
-Two processes: a static frontend (plain JS, ES modules, TODO: use TS and add build step and package management) and
-a FastAPI backend that computes projections server-side.
+A single FastAPI process computes projections server-side and also serves
+the static frontend (plain JS, ES modules; TODO: use TS and add a build
+step and package management).
 
-## Setup
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python3 -c "from huggingface_hub import login; login()"
-```
-Then accept the terms at https://huggingface.co/datasets/facebook/flores
-(skip HF setup if you only plan to upload your own embeddings JSON).
-
-## Run
+## Setup & run
 
 ```bash
-python3 -m uvicorn server:app --port 8500   # backend
-python3 -m http.server 8000                 # frontend, separate terminal
+make run     # creates .venv, installs requirements (only when they change), starts the app
+make test    # runs the test suite
 ```
-Open **http://localhost:8000**. The app starts **empty** (nothing is
-embedded at startup, so it uses no memory until you ask): either upload
+Then open **http://localhost:8500** (`make run PORT=9000` to change it).
+Requires Python 3.9+.
+
+For FLORES-200 loading, do the one-time Hugging Face setup (skip it if you
+only upload your own embeddings JSON): `.venv/bin/python -c "from huggingface_hub import login; login()"`
+(or set `HF_TOKEN`), then accept the terms at
+https://huggingface.co/datasets/facebook/flores.
+
+The app starts **empty** (nothing is embedded at startup, so it uses no
+memory until you ask): either upload
 an embeddings JSON, or expand **Or embed FLORES-200 sentences** in the
 sidebar and choose the FLORES-200 language codes, sentences per language
 (1–1012), model and pooling (`mean` | `max` | `cls` — how token vectors
@@ -58,7 +57,7 @@ feature (translations, tokens) has something to show.
   sentences, their gap, and retrieval accuracy (how often a translation
   is the mutual nearest neighbor of its source, among the selection).
   Translations are matched by `pairId`; without it only the overall
-  numbers are shown. Hide it from the ⚙ layout menu.
+  numbers are shown. Collapse it with its ▾ button.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
   — independently toggle its tokens. **Translations** are the one
   exception: only available while exactly one point is pinned. Tokens
@@ -70,7 +69,9 @@ feature (translations, tokens) has something to show.
   with it. Also disables the fisheye lens (a lens over an isolated,
   already-decluttered view isn't useful) until it's turned back off.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
-  **Refit** forces a manual re-run.
+  only the selected method's parameters are shown (UMAP: neighbors,
+  min_dist; t-SNE: perplexity, learning_rate). **Refit** re-runs with the
+  edited values.
 - **Label on hover** — choose what the tooltip shows (text/ID/language/
   language family).
 - **Fisheye lens** — check the box, then hover the plot to magnify points
@@ -94,12 +95,16 @@ feature (translations, tokens) has something to show.
   an exact match (so `pairid=1` doesn't also pull in "10", "11", ...);
   `lang=`/`text=` still match by substring. Ephemeral — clears whenever
   a new dataset loads, not part of the shareable link.
+- **Collapse any view** — the ▾/◂ button in each header (sidebar,
+  projection, data table, statistics) folds it down to its title bar and
+  the others take over the space; the state is remembered across
+  reloads. ⤢ still makes one view fill the window.
 - **Resize the data table** — drag the thin handle between the plot and
   the table; the split is remembered across reloads.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
   expected format. **Load FLORES-200** embeds the chosen subset on the
-backend (needs the Hugging Face setup above) and replaces whatever is
-loaded, without restarting the server.
+  backend (needs the Hugging Face setup above) and replaces whatever is
+  loaded, without restarting the server.
 
 ## Language families
 
@@ -108,17 +113,25 @@ loaded, without restarting the server.
 [Glottolog](https://github.com/glottolog/glottolog-cldf) (CC BY 4.0) and
 keyed by ISO 639-3 code, so any FLORES-style code (`deu_Latn` → `deu`) is
 covered. ISO 639-1 codes (`de`) and English names (`German`) also resolve,
-via aliases built from the SIL ISO 639-3 table. Indo-European is split into its main branches (Germanic,
-Romance, Slavic, ...); other families use Glottolog's top level. To
-refresh the file: `python3 scripts/build_language_families.py`.
+via aliases built from the SIL ISO 639-3 table. Indo-European is split
+into its main branches (Germanic, Romance, Slavic, ...); other families
+use Glottolog's top level. To refresh the file:
+`python3 scripts/build_language_families.py`.
 
 For your own language codes, add a `lang_families` map (or a per-point
 `family`) to the uploaded JSON — see the "?" next to *Load embeddings
 JSON*. Anything unknown is grouped as "Other".
 
+## Development
+
+`make test` runs the backend tests (pytest). Frontend files are served
+as-is, so a browser refresh picks up JS/CSS changes; restart `make run`
+after editing `server.py`. To run the frontend against a backend on
+another address, open the page with `?backend=http://host:port`.
+
 ## Troubleshooting
 
-- **"Can't reach the backend"** — start/check `uvicorn server:app --port 8500`.
-- **Address already in use** — `lsof -ti:8000 -sTCP:LISTEN` (or `:8500`), `kill <pid>`.
+- **"Can't reach the backend"** — start/check `make run`.
+- **Address already in use** — `lsof -ti:8500 -sTCP:LISTEN`, `kill <pid>`, or `make run PORT=9000`.
 - **"Could not load FLORES-200"** — run the HF login step above and accept
   the dataset terms, or upload your own file.

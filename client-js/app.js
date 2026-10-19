@@ -10,7 +10,10 @@ import { LangFilter } from './lang-filter.js';
 import { StatsView } from './stats-view.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
 
-const BACKEND_URL = 'http://localhost:8500';
+const PANEL_IDS = ['sidebar', 'projection-panel', 'data-table-panel', 'stats-panel'];
+
+// Same origin by default (server.py serves this page); ?backend=http://host:port overrides it.
+const BACKEND_URL = new URLSearchParams(location.search).get('backend') ?? '';
 const PIN_PALETTE = d3.schemeTableau10;
 
 class App {
@@ -50,7 +53,8 @@ class App {
     document.getElementById('flores-load-button')
       .addEventListener('click', () => this._onLoadFlores());
     document.getElementById('method-select')
-      .addEventListener('change', () => this._refresh());
+      .addEventListener('change', () => { this._syncParamVisibility(); this._refresh(); });
+    this._syncParamVisibility();
     document.getElementById('metric-select')
       .addEventListener('change', () => this._refresh());
     // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
@@ -84,11 +88,19 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
     document.getElementById('stats-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('stats-panel'));
-    this._initLayoutConfig();
+    this._initPanels();
     this._initResizeHandle();
     installActionsMenuOutsideClickHandler();
 
     await this._refresh();
+  }
+
+  // UMAP and t-SNE take disjoint hyperparameters, so only the selected
+  // method's fields are shown.
+  _syncParamVisibility() {
+    const umap = document.getElementById('method-select').value === 'umap';
+    document.getElementById('umap-params').hidden = !umap;
+    document.getElementById('tsne-params').hidden = umap;
   }
 
   _umapParams() {
@@ -105,95 +117,74 @@ class App {
     };
   }
 
-  // Layout config panel: lets the sidebar/projection/table each be hidden
-  // independently (unlike fullscreen, which always keeps exactly one view
-  // visible), persisted across reloads via localStorage. Never allows both
-  // the projection and data-table panels to be hidden at once — that would
-  // leave #main empty with no way to get either back.
-  _initLayoutConfig() {
-    const STORAGE_KEY = 'projection-app-layout';
-    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel', stats: 'stats-panel' };
-    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table', stats: 'toggle-stats' };
+  // Every view (sidebar, projection, data table, statistics) can be
+  // collapsed to just its header bar; the choice persists in localStorage.
+  // Collapsing never removes the header, so there is always a way back.
+  _initPanels() {
+    const STORAGE_KEY = 'projection-app-collapsed';
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { saved = []; }
+    this._collapsed = new Set(Array.isArray(saved) ? saved.filter(id => PANEL_IDS.includes(id)) : []);
+    this._saveCollapsed = () => localStorage.setItem(STORAGE_KEY, JSON.stringify([...this._collapsed]));
 
-    let saved = {};
-    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { saved = {}; }
-    for (const key of Object.keys(panelIdFor)) {
-      const visible = saved[key] !== false;
-      document.getElementById(panelIdFor[key]).classList.toggle('hidden', !visible);
-      document.getElementById(checkboxIdFor[key]).checked = visible;
-    }
-    this._updateResizeHandleVisibility();
-
-    document.getElementById('layout-config-toggle').addEventListener('click', () => {
-      document.getElementById('layout-config-panel').classList.toggle('visible');
-    });
-
-    for (const key of Object.keys(checkboxIdFor)) {
-      document.getElementById(checkboxIdFor[key]).addEventListener('change', e => {
-        const wantVisible = e.target.checked;
-        if (!wantVisible && (key === 'projection' || key === 'dataTable')) {
-          const otherKey = key === 'projection' ? 'dataTable' : 'projection';
-          if (!document.getElementById(checkboxIdFor[otherKey]).checked) {
-            e.target.checked = true; // refuse to hide both view panels at once
-            return;
-          }
-        }
-
-        const panel = document.getElementById(panelIdFor[key]);
-        panel.classList.toggle('hidden', !wantVisible);
-        panel.classList.remove('fullscreen'); // avoid a stale fullscreen+hidden combo
-
-        const current = {};
-        for (const k of Object.keys(checkboxIdFor)) current[k] = document.getElementById(checkboxIdFor[k]).checked;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-
-        if (this.view) this.view.resize(); // any panel can change the projection's available height
-        this._updateResizeHandleVisibility();
+    for (const btn of document.querySelectorAll('[data-collapse]')) {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.collapse;
+        if (this._collapsed.has(id)) this._collapsed.delete(id); else this._collapsed.add(id);
+        this._saveCollapsed();
+        this._applyLayout();
       });
     }
+    this._applyLayout();
+  }
+
+  // Single place that turns collapsed/hidden state into classes: the
+  // projection fills spare space when expanded, otherwise the topmost
+  // expanded view does, so a collapsed panel never leaves a blank gap.
+  _applyLayout() {
+    const isOpen = id => !this._collapsed.has(id) && !document.getElementById(id).classList.contains('hidden');
+    for (const id of PANEL_IDS) {
+      const collapsed = this._collapsed.has(id);
+      document.getElementById(id).classList.toggle('collapsed', collapsed);
+      const btn = document.querySelector(`[data-collapse="${id}"]`);
+      btn.textContent = collapsed ? '▸' : (id === 'sidebar' ? '◂' : '▾');
+      btn.title = collapsed ? 'Expand' : 'Collapse';
+      btn.setAttribute('aria-expanded', String(!collapsed));
+    }
+    const viewIds = ['projection-panel', 'data-table-panel', 'stats-panel'];
+    const growId = viewIds.find(isOpen);
+    for (const id of viewIds) {
+      document.getElementById(id).classList.toggle('grow', id === growId && id !== 'projection-panel');
+    }
+    this._updateResizeHandleVisibility();
+    if (this.view && isOpen('projection-panel')) this.view.resize();
   }
 
   // Toggles `panelId` to fill #main (hiding every other view-panel), or
-  // restores whatever visibility those other panels had immediately
-  // before entering fullscreen (not just "show everything") — so
-  // exiting fullscreen doesn't undo a layout-config choice made earlier.
+  // brings the others back (each in whatever collapsed state it had).
   _toggleFullscreen(panelId) {
-    const ALL_PANEL_IDS = ['projection-panel', 'data-table-panel', 'stats-panel'];
+    const viewIds = ['projection-panel', 'data-table-panel', 'stats-panel'];
     const panel = document.getElementById(panelId);
     const turningOn = !panel.classList.contains('fullscreen');
 
-    if (turningOn) {
-      this._preFullscreenHidden = ALL_PANEL_IDS
-        .filter(id => id !== panelId && document.getElementById(id).classList.contains('hidden'));
-      for (const id of ALL_PANEL_IDS) {
-        if (id === panelId) continue;
-        document.getElementById(id).classList.add('hidden');
-      }
-      panel.classList.remove('hidden');
-      panel.classList.add('fullscreen');
-    } else {
-      panel.classList.remove('fullscreen');
-      for (const id of ALL_PANEL_IDS) {
-        if (id === panelId) continue;
-        document.getElementById(id).classList.toggle('hidden', (this._preFullscreenHidden || []).includes(id));
-      }
+    for (const id of viewIds) {
+      if (id !== panelId) document.getElementById(id).classList.toggle('hidden', turningOn);
     }
-
-    this._updateResizeHandleVisibility();
-    this.view.resize();
+    panel.classList.toggle('fullscreen', turningOn);
+    if (turningOn && this._collapsed.delete(panelId)) this._saveCollapsed();
+    this._applyLayout();
   }
 
   // The resize handle only makes sense when both panels it sits between
   // are actually on screen to trade space with each other.
   _updateResizeHandleVisibility() {
-    const projectionVisible = !document.getElementById('projection-panel').classList.contains('hidden');
-    const tableVisible = !document.getElementById('data-table-panel').classList.contains('hidden');
-    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(projectionVisible && tableVisible));
+    const open = id => !this._collapsed.has(id) && !document.getElementById(id).classList.contains('hidden');
+    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(open('projection-panel') && open('data-table-panel')));
   }
 
   // Drag-to-resize between the projection and data-table panels. Sets an
   // explicit inline height on #data-table-panel (overriding its CSS
-  // default), persisted across reloads the same way layout-config is.
+  // default), persisted across reloads like the collapsed state.
   // Dragging the handle down shrinks the table (and lets the flex:1
   // projection panel above it grow into the freed space); dragging up
   // grows it — the opposite of the mouse's own screen-Y direction, since
@@ -586,6 +577,7 @@ class App {
     const methodSelect = document.getElementById('method-select');
     if (methodSelect.value !== 'umap') {
       methodSelect.value = 'umap';
+      this._syncParamVisibility();
       await this._refresh();
       const reselected = this.points.find(p => p.id === point.id);
       if (!reselected) return;
