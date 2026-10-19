@@ -65,7 +65,7 @@
       </div>
       <label for="method-select">Projection method:</label>
       <button type="button" id="projection-caveats-toggle" title="What this plot can't tell you">?</button>
-      <select id="method-select" data-tip="Projection algorithm. UMAP is faster and keeps more global structure; t-SNE emphasizes local neighborhoods.">
+      <select id="method-select" data-tip="Projection algorithm. UMAP is usually much faster; both mainly preserve local neighborhoods.">
         <option value="umap">UMAP</option>
         <option value="tsne">t-SNE</option>
       </select>
@@ -91,8 +91,8 @@
         <summary data-tip="Hyperparameters of the selected projection method">Method parameters</summary>
         <div id="umap-params" class="param-row">
           <div class="param-field">
-            <label for="umap-n-neighbors" data-tip="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200).">neighbors:</label>
-            <input data-tip="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200)." type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
+            <label for="umap-n-neighbors" data-tip="n_neighbors — how many nearby points each point is compared against. Small values emphasize fine local detail, larger ones give a smoother layout (2–200).">neighbors:</label>
+            <input data-tip="n_neighbors — how many nearby points each point is compared against. Small values emphasize fine local detail, larger ones give a smoother layout (2–200)." type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
           </div>
           <div class="param-field">
             <label for="umap-min-dist" data-tip="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1).">min_dist:</label>
