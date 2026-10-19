@@ -540,6 +540,13 @@ def stats(req: StatsRequest) -> dict:
 ROOT = Path(__file__).parent
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache"  # revalidate, so edits show on a normal refresh
+    return response
+
+
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(ROOT / "index.html")

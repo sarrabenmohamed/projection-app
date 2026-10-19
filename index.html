@@ -65,7 +65,7 @@
       </div>
       <label for="method-select">Projection method:</label>
       <button type="button" id="projection-caveats-toggle" title="What this plot can't tell you">?</button>
-      <select id="method-select" title="Projection algorithm. UMAP is faster and keeps more global structure; t-SNE emphasizes local neighborhoods.">
+      <select id="method-select" data-tip="Projection algorithm. UMAP is faster and keeps more global structure; t-SNE emphasizes local neighborhoods.">
         <option value="umap">UMAP</option>
         <option value="tsne">t-SNE</option>
       </select>
@@ -78,7 +78,7 @@
         </ul>
       </div>
       <label for="metric-select">Distance metric:</label>
-      <select id="metric-select" title="How distance between embeddings is measured before projecting. Cosine ignores vector length and is the usual choice for text embeddings; euclidean also compares magnitude.">
+      <select id="metric-select" data-tip="How distance between embeddings is measured before projecting. Cosine ignores vector length and is the usual choice for text embeddings; euclidean also compares magnitude.">
         <option value="euclidean">euclidean</option>
         <option value="cosine">cosine</option>
         <option value="manhattan">manhattan</option>
@@ -88,30 +88,30 @@
         <option value="canberra">canberra</option>
       </select>
       <details id="projection-params">
-        <summary title="Hyperparameters of the selected projection method">Method parameters</summary>
+        <summary data-tip="Hyperparameters of the selected projection method">Method parameters</summary>
         <div id="umap-params" class="param-row">
           <div class="param-field">
-            <label for="umap-n-neighbors" title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200).">neighbors:</label>
-            <input title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200)." type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
+            <label for="umap-n-neighbors" data-tip="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200).">neighbors:</label>
+            <input data-tip="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200)." type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
           </div>
           <div class="param-field">
-            <label for="umap-min-dist" title="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1).">min_dist:</label>
-            <input title="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1)." type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
+            <label for="umap-min-dist" data-tip="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1).">min_dist:</label>
+            <input data-tip="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1)." type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
           </div>
         </div>
         <div id="tsne-params" hidden>
           <div class="param-row">
             <div class="param-field">
-              <label for="tsne-perplexity" title="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500).">perplexity:</label>
-              <input title="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500)." type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
+              <label for="tsne-perplexity" data-tip="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500).">perplexity:</label>
+              <input data-tip="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500)." type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
             </div>
             <div class="param-field">
-              <label for="tsne-learning-rate" title="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one.">learning_rate:</label>
-              <input title="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one." type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
+              <label for="tsne-learning-rate" data-tip="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one.">learning_rate:</label>
+              <input data-tip="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one." type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
             </div>
           </div>
         </div>
-        <button type="button" id="refit-button" title="Re-run the projection with the current method, metric and parameters">Refit</button>
+        <button type="button" id="refit-button" data-tip="Re-run the projection with the current method, metric and parameters">Refit</button>
       </details>
       <label for="label-select">Label on hover:</label>
       <select id="label-select">
