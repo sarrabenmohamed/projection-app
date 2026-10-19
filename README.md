@@ -23,11 +23,14 @@ Then accept the terms at https://huggingface.co/datasets/facebook/flores
 python3 -m uvicorn server:app --port 8500   # backend
 python3 -m http.server 8000                 # frontend, separate terminal
 ```
-Open **http://localhost:8000**. First backend startup computes and caches
-the default 40-language dataset (a few minutes); later startups load the
-cache instantly. Customize it via env vars: `PROJECTION_LANGUAGES`,
-`PROJECTION_N_SENTENCES`, `PROJECTION_MODEL`, `PROJECTION_POOLING`
-(`mean` | `max` | `cls` — how token vectors combine into a sentence vector).
+Open **http://localhost:8000**. The app starts **empty** (nothing is
+embedded at startup, so it uses no memory until you ask): either upload
+an embeddings JSON, or expand **Or embed FLORES-200 sentences** in the
+sidebar and choose the FLORES-200 language codes, sentences per language
+(1–1012), model and pooling (`mean` | `max` | `cls` — how token vectors
+combine into a sentence vector). Memory and time grow with languages ×
+sentences, so start small (the default is 5 languages × 100 sentences).
+Each configuration is cached under `data/`, so repeating it is instant.
 
 ## Demo
 
@@ -94,10 +97,9 @@ feature (translations, tokens) has something to show.
 - **Resize the data table** — drag the thin handle between the plot and
   the table; the split is remembered across reloads.
 - **Load embeddings JSON** — upload your own dataset; click "?" for the
-  expected format. **Reset to default dataset** discards it and reloads
-  FLORES-200 without restarting the server — reloading the full default
-  dataset from its cache file can take a while (it's several GB), so this
-  can take up to a minute or two.
+  expected format. **Load FLORES-200** embeds the chosen subset on the
+backend (needs the Hugging Face setup above) and replaces whatever is
+loaded, without restarting the server.
 
 ## Language families
 
@@ -118,5 +120,5 @@ JSON*. Anything unknown is grouped as "Other".
 
 - **"Can't reach the backend"** — start/check `uvicorn server:app --port 8500`.
 - **Address already in use** — `lsof -ti:8000 -sTCP:LISTEN` (or `:8500`), `kill <pid>`.
-- **No default dataset** — `data/flores_embeddings.json` missing; run the
-  HF login step above, or upload your own file.
+- **"Could not load FLORES-200"** — run the HF login step above and accept
+  the dataset terms, or upload your own file.

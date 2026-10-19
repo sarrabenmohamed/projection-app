@@ -52,8 +52,13 @@ export class BackendClient {
     });
   }
 
-  resetDataset() {
-    return this._request('/dataset/reset', { method: 'POST' });
+  // config is {lang_codes, n_sentences, model, pooling}; a first build can take minutes.
+  loadFlores(config) {
+    return this._request('/dataset/flores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
   }
 
   async _request(path, options) {

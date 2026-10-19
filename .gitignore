@@ -1,5 +1,5 @@
-# Generated embeddings data (regenerated automatically by server.py on
-# startup via embedding_pipeline.py) — well over GitHub's 100MB push limit
+# Generated embeddings data (built on demand by server.py via
+# embedding_pipeline.py) — well over GitHub's 100MB push limit
 # at full size, and not source anyway.
 data/
 

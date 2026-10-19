@@ -91,16 +91,6 @@ def test_points_endpoint_reports_token_texts(client):
     assert by_id["en-1"]["tokenTexts"] == ["bye", "!"]
 
 
-def test_pipeline_config_reads_env_vars(monkeypatch):
-    monkeypatch.setenv("PROJECTION_LANGUAGES", "eng_Latn,deu_Latn")
-    monkeypatch.setenv("PROJECTION_N_SENTENCES", "50")
-    monkeypatch.setenv("PROJECTION_MODEL", "some-model")
-    monkeypatch.setenv("PROJECTION_POOLING", "max")
-    assert server._pipeline_config() == {
-        "lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 50, "model": "some-model", "pooling": "max",
-    }
-
-
 def test_cache_matches_true_when_config_matches():
     cached = {
         "model": "m", "lang_codes": ["a", "b"],
@@ -168,60 +158,6 @@ def test_load_or_build_dataset_rebuilds_on_cache_miss(tmp_path):
     result = server._load_or_build_dataset(cache_path, config, fake_builder)
     assert result == built
     assert json.loads(cache_path.read_text()) == built
-
-
-def test_load_default_dataset_degrades_gracefully_when_build_fails(tmp_path, monkeypatch):
-    def fake_build_dataset(*args, **kwargs):
-        raise RuntimeError("no HuggingFace auth/network available")
-
-    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
-    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "does-not-exist.json")
-
-    saved_dataset = copy.deepcopy(server.DATASET)
-    try:
-        server.DATASET["data"] = None
-        server.DATASET["generation"] = 0
-
-        server.load_default_dataset()  # must not raise
-
-        assert server.DATASET["data"] is None
-    finally:
-        server.DATASET["data"] = saved_dataset["data"]
-        server.DATASET["generation"] = saved_dataset["generation"]
-
-
-def test_reset_dataset_endpoint_reloads_default(client, tmp_path, monkeypatch):
-    default_built = {
-        "model": "default-model", "layer": "last", "pooling": "mean", "lang_codes": ["a"],
-        "points": [{"id": "a-0", "lang": "a", "vector": [0.0, 0.0, 0.0]}],
-    }
-
-    def fake_build_dataset(lang_codes, n_sentences, model_name, pooling):
-        return default_built
-
-    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
-    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "cache.json")
-
-    res = client.post("/dataset/reset")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["n_points"] == 1
-    assert body["lang_codes"] == ["a"]
-    assert server.DATASET["data"]["model"] == "default-model"
-
-
-def test_reset_dataset_endpoint_500_and_keeps_current_dataset_on_failure(client, tmp_path, monkeypatch):
-    def fake_build_dataset(*args, **kwargs):
-        raise RuntimeError("no HuggingFace auth/network available")
-
-    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
-    monkeypatch.setattr(server, "DEFAULT_DATA_PATH", tmp_path / "does-not-exist.json")
-
-    previous_model = server.DATASET["data"]["model"]
-    res = client.post("/dataset/reset")
-    assert res.status_code == 500
-    assert "Could not reload the default dataset" in res.json()["detail"]
-    assert server.DATASET["data"]["model"] == previous_model  # untouched on failure
 
 
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
@@ -529,3 +465,89 @@ def test_family_of_resolves_iso1_codes_and_english_names():
 def test_family_of_still_falls_back_to_other_for_nonsense():
     assert server.family_of("xx") == "Other"
     assert server.family_of("") == "Other"
+
+
+def test_server_does_not_build_a_dataset_on_startup():
+    assert not hasattr(server, "load_default_dataset")
+    assert not server.app.router.on_startup
+
+
+def test_points_404_with_helpful_message_when_empty():
+    saved = dict(server.DATASET)
+    try:
+        server.DATASET["data"] = None
+        res = TestClient(server.app).get("/points")
+        assert res.status_code == 404
+        assert "FLORES" in res.json()["detail"]
+    finally:
+        server.DATASET.update(saved)
+
+
+def test_flores_config_validates_and_dedupes():
+    cfg = server._flores_config({"lang_codes": ["eng_Latn", "deu_Latn", "eng_Latn"], "n_sentences": 25})
+    assert cfg == {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 25, "model": "xlm-roberta-base", "pooling": "mean"}
+
+
+@pytest.mark.parametrize("raw", [
+    {"lang_codes": [], "n_sentences": 10},
+    {"lang_codes": ["english"], "n_sentences": 10},
+    {"lang_codes": ["eng_Latn"], "n_sentences": 0},
+    {"lang_codes": ["eng_Latn"], "n_sentences": 5000},
+    {"lang_codes": ["eng_Latn"], "n_sentences": "ten"},
+    {"lang_codes": "eng_Latn", "n_sentences": 10},
+    {"lang_codes": ["eng_Latn"], "n_sentences": 10, "pooling": "median"},
+    {"lang_codes": ["eng_Latn"], "n_sentences": 10, "model": ""},
+])
+def test_flores_config_rejects_bad_input(raw):
+    with pytest.raises(ValueError):
+        server._flores_config(raw)
+
+
+def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_build_dataset(lang_codes, n_sentences, model_name, pooling):
+        calls.append((lang_codes, n_sentences, model_name, pooling))
+        return {
+            "model": model_name, "layer": "last", "pooling": pooling, "lang_codes": lang_codes,
+            "points": [
+                {"id": f"{c}-{i}", "lang": c, "pairId": i, "vector": [float(i), 1.0], "tokenVectors": [{"token": "t", "vector": [0.0, 1.0]}]}
+                for c in lang_codes for i in range(n_sentences)
+            ],
+        }
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+
+    body = {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 3}
+    res = client.post("/dataset/flores", json=body)
+    assert res.status_code == 200
+    assert res.json()["n_points"] == 6
+    assert calls == [(["eng_Latn", "deu_Latn"], 3, "xlm-roberta-base", "mean")]
+    assert len(list(tmp_path.glob("flores_*.json"))) == 1
+
+    res = client.post("/dataset/flores", json=body)  # same config -> cache hit
+    assert res.status_code == 200
+    assert len(calls) == 1
+
+    res = client.post("/dataset/flores", json={**body, "n_sentences": 2})  # different config -> own cache file
+    assert res.json()["n_points"] == 4
+    assert len(list(tmp_path.glob("flores_*.json"))) == 2
+
+
+def test_flores_endpoint_400_on_bad_config(client):
+    res = client.post("/dataset/flores", json={"lang_codes": ["nope"], "n_sentences": 10})
+    assert res.status_code == 400
+
+
+def test_flores_endpoint_500_and_keeps_dataset_when_build_fails(client, tmp_path, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("no HuggingFace auth/network available")
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", boom)
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    before = server.DATASET["data"]
+    res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
+    assert res.status_code == 500
+    assert "no HuggingFace auth" in res.json()["detail"]
+    assert server.DATASET["data"] is before
