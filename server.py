@@ -19,9 +19,11 @@ import importlib.util
 import json
 import math
 import os
+import re
 import sys
 import types
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, List, Literal, Optional, Union
 
@@ -62,31 +64,52 @@ DEFAULT_N_SENTENCES = 200
 DEFAULT_MODEL = "xlm-roberta-base"
 DEFAULT_POOLING = "mean"
 
-# Maps FLORES-200 language codes to linguistic families, for the frontend's
-# default "color by language family" mode. Unknown codes (e.g. from an
-# uploaded dataset with its own language codes) fall back to a shared
-# "Other" bucket rather than going uncolored.
-LANG_FAMILY = {
-    "eng_Latn": "Germanic", "deu_Latn": "Germanic", "nld_Latn": "Germanic", "swe_Latn": "Germanic", "dan_Latn": "Germanic",
-    "spa_Latn": "Romance", "fra_Latn": "Romance", "por_Latn": "Romance", "ita_Latn": "Romance", "ron_Latn": "Romance",
-    "zho_Hans": "Sino-Tibetan", "zho_Hant": "Sino-Tibetan", "mya_Mymr": "Sino-Tibetan",
-    "jpn_Jpan": "Japonic",
-    "kor_Hang": "Koreanic",
-    "rus_Cyrl": "Slavic", "pol_Latn": "Slavic", "ukr_Cyrl": "Slavic", "ces_Latn": "Slavic",
-    "tur_Latn": "Turkic",
-    "vie_Latn": "Austroasiatic", "khm_Khmr": "Austroasiatic",
-    "ind_Latn": "Austronesian",
-    "tha_Thai": "Kra-Dai",
-    "hun_Latn": "Uralic", "fin_Latn": "Uralic",
-    "heb_Hebr": "Afroasiatic", "arb_Arab": "Afroasiatic", "amh_Ethi": "Afroasiatic",
-    "pes_Arab": "Indo-Iranian", "urd_Arab": "Indo-Iranian", "hin_Deva": "Indo-Iranian", "ben_Beng": "Indo-Iranian",
-    "guj_Gujr": "Indo-Iranian", "pan_Guru": "Indo-Iranian", "sin_Sinh": "Indo-Iranian",
-    "tam_Taml": "Dravidian", "tel_Telu": "Dravidian", "mal_Mlym": "Dravidian", "kan_Knda": "Dravidian",
-}
+FAMILIES_PATH = Path(__file__).parent / "resources" / "language_families.json"
 
 
-def family_of(lang_code: str) -> str:
-    return LANG_FAMILY.get(lang_code, "Other")
+@lru_cache(maxsize=1)
+def _glottolog_data() -> dict:
+    """The generated lookup: {"families": iso3 -> family, "aliases": 639-1
+    code / English name -> iso3}. A missing file just means every language
+    falls back to "Other" rather than failing the server."""
+    try:
+        data = json.loads(FAMILIES_PATH.read_text(encoding="utf-8"))
+        return {"families": data["families"], "aliases": data.get("aliases", {})}
+    except (OSError, ValueError, KeyError):
+        return {"families": {}, "aliases": {}}
+
+
+def _glottolog_families() -> dict:
+    return _glottolog_data()["families"]
+
+
+def _lookup_family(lang_code: str) -> Optional[str]:
+    data = _glottolog_data()
+    whole = " ".join(lang_code.lower().split())
+    # "deu_Latn" / "de-DE" -> "deu" / "de"; names like "German" match as a whole.
+    base = re.match(r"^([a-z]{2,3})[_-][a-z0-9]{2,4}$", whole)
+    for key in (whole, base.group(1) if base else whole.split("_")[0]):
+        iso = key if key in data["families"] else data["aliases"].get(key)
+        if iso:
+            return data["families"][iso]
+    return None
+
+
+def family_of(lang_code: str, overrides: Optional[dict] = None) -> str:
+    """Linguistic family for the frontend's "color by language family" mode.
+    `overrides` (a dataset's own lang_families map) win; otherwise the code is
+    looked up in the Glottolog data: ISO 639-3 ("deu", "deu_Latn"), ISO 639-1
+    ("de") or an English name ("German"). Anything unknown shares one
+    "Other" bucket rather than going uncolored."""
+    if overrides and lang_code in overrides:
+        return overrides[lang_code]
+    return _lookup_family(lang_code) or "Other"
+
+
+def point_family(point: dict, dataset: dict) -> str:
+    """A point's own `family` beats the dataset's lang_families, which beat Glottolog."""
+    return point.get("family") or family_of(point["lang"], dataset.get("lang_families"))
+
 
 app = FastAPI()
 app.add_middleware(
@@ -118,6 +141,8 @@ def validate_and_normalize(raw: dict) -> dict:
             raise ValueError(f'points[{i}] is missing a valid "id"')
         if not isinstance(p.get("lang"), str):
             raise ValueError(f'points[{i}] is missing a valid "lang"')
+        if "family" in p and (not isinstance(p["family"], str) or not p["family"].strip()):
+            raise ValueError(f'points[{i}].family must be a non-empty string')
         vec = p.get("vector")
         if (not isinstance(vec, list) or len(vec) != dim
                 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vec)):
@@ -136,12 +161,20 @@ def validate_and_normalize(raw: dict) -> dict:
                         f'points[{i}].tokenVectors[{j}] must be {{"token": str, "vector": array of {dim} finite numbers}}'
                     )
 
+    lang_families = raw.get("lang_families")
+    if lang_families is not None and (
+        not isinstance(lang_families, dict)
+        or not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in lang_families.items())
+    ):
+        raise ValueError('"lang_families" must be an object mapping language codes to family names')
+
     return {
         "model": raw.get("model") or "unknown model",
         "layer": raw.get("layer") or "unknown",
         "pooling": raw.get("pooling") or "mean",
         "dim": dim,
         "lang_codes": raw.get("lang_codes") or sorted({p["lang"] for p in points}),
+        "lang_families": lang_families or {},
         "points": points,
     }
 
@@ -247,7 +280,7 @@ def get_points() -> dict:
         "points": [
             {
                 "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
-                "family": family_of(p["lang"]),
+                "family": point_family(p, d),
                 "hasTokens": p.get("tokenVectors") is not None,
                 "tokenTexts": [t["token"] for t in p["tokenVectors"]] if p.get("tokenVectors") is not None else None,
             }
@@ -447,6 +480,10 @@ def stats(req: StatsRequest) -> dict:
                 first_row.setdefault(p["pairId"], row)
         pair_ids_by_lang[lang] = first_row
 
+    family_by_lang: dict = {}
+    for p in selected:
+        family_by_lang.setdefault(p["lang"], point_family(p, d))
+
     all_sum, all_pairs = _mean_pairwise_cosine_sums(np.vstack(list(unit_by_lang.values())))
     within_sum = within_pairs = 0
     for unit in unit_by_lang.values():
@@ -476,7 +513,7 @@ def stats(req: StatsRequest) -> dict:
         "n_selected": len(selected),
         "n_languages": len(langs),
         "languages": [
-            {"lang": lang, "family": family_of(lang), "count": len(unit_by_lang[lang])} for lang in langs
+            {"lang": lang, "family": family_by_lang[lang], "count": len(unit_by_lang[lang])} for lang in langs
         ],
         "overall": {
             "within_language": (within_sum / within_pairs) if within_pairs else None,

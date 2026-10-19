@@ -73,15 +73,14 @@ def test_points_endpoint_reports_language_family(client):
     res = client.get("/points")
     body = res.json()
     by_id = {p["id"]: p for p in body["points"]}
-    # SAMPLE_DATASET's "en"/"de" codes aren't real FLORES-200 codes, so they
-    # fall back to the shared "Other" bucket rather than a real family.
-    assert by_id["en-0"]["family"] == "Other"
+    assert by_id["en-0"]["family"] == "Germanic"
 
 
 def test_family_of_maps_known_flores_codes():
     assert server.family_of("eng_Latn") == "Germanic"
     assert server.family_of("fra_Latn") == "Romance"
     assert server.family_of("not-a-real-code") == "Other"
+    assert server.family_of("zzz_Latn") == "Other"
 
 
 def test_points_endpoint_reports_token_texts(client):
@@ -453,3 +452,80 @@ def test_stats_empty_selection_is_400(client):
 
 def test_stats_unknown_id_is_404(client):
     assert client.post("/stats", json={"ids": ["en-0", "nope"]}).status_code == 404
+
+
+def test_family_of_uses_glottolog_data_for_flores_codes():
+    assert server.family_of("rus_Cyrl") == "Slavic"
+    assert server.family_of("hin_Deva") == "Indo-Iranian"
+    assert server.family_of("jpn_Jpan") == "Japonic"
+    assert server.family_of("lvs_Latn") == "Baltic"
+    assert server.family_of("zho_Hans") == server.family_of("zho_Hant") == "Sino-Tibetan"
+
+
+def test_family_of_covers_languages_beyond_the_old_hardcoded_forty():
+    assert server.family_of("swh_Latn") != "Other"
+    assert server.family_of("quy_Latn") != "Other"
+
+
+def test_family_of_override_wins_over_glottolog():
+    assert server.family_of("eng_Latn", {"eng_Latn": "Custom"}) == "Custom"
+    assert server.family_of("fra_Latn", {"eng_Latn": "Custom"}) == "Romance"
+
+
+def test_points_endpoint_uses_dataset_lang_families():
+    raw = copy.deepcopy(SAMPLE_DATASET)
+    raw["lang_families"] = {"en": "Germanic", "de": "Germanic"}
+    server.DATASET["data"] = server.validate_and_normalize(raw)
+    server.DATASET["generation"] += 1
+    by_id = {p["id"]: p for p in TestClient(server.app).get("/points").json()["points"]}
+    assert by_id["en-0"]["family"] == "Germanic"
+    assert by_id["de-0"]["family"] == "Germanic"
+
+
+def test_points_endpoint_per_point_family_beats_lang_families():
+    raw = copy.deepcopy(SAMPLE_DATASET)
+    raw["lang_families"] = {"en": "Germanic"}
+    raw["points"][0]["family"] = "Special"
+    server.DATASET["data"] = server.validate_and_normalize(raw)
+    server.DATASET["generation"] += 1
+    by_id = {p["id"]: p for p in TestClient(server.app).get("/points").json()["points"]}
+    assert by_id["en-0"]["family"] == "Special"
+    assert by_id["en-2"]["family"] == "Germanic"
+
+
+def test_stats_languages_report_dataset_families():
+    raw = copy.deepcopy(SAMPLE_DATASET)
+    raw["lang_families"] = {"en": "Special"}
+    server.DATASET["data"] = server.validate_and_normalize(raw)
+    server.DATASET["generation"] += 1
+    body = TestClient(server.app).post("/stats", json={"ids": ["en-0", "de-0"]}).json()
+    assert {l["lang"]: l["family"] for l in body["languages"]} == {"en": "Special", "de": "Germanic"}
+
+
+def test_validate_and_normalize_rejects_non_object_lang_families():
+    bad = copy.deepcopy(SAMPLE_DATASET)
+    bad["lang_families"] = ["Germanic"]
+    with pytest.raises(ValueError):
+        server.validate_and_normalize(bad)
+
+
+def test_validate_and_normalize_rejects_empty_point_family():
+    bad = copy.deepcopy(SAMPLE_DATASET)
+    bad["points"][0]["family"] = ""
+    with pytest.raises(ValueError):
+        server.validate_and_normalize(bad)
+
+
+def test_family_of_resolves_iso1_codes_and_english_names():
+    assert server.family_of("en") == "Germanic"
+    assert server.family_of("fr") == "Romance"
+    assert server.family_of("German") == "Germanic"
+    assert server.family_of("english") == "Germanic"
+    assert server.family_of("de-DE") == "Germanic"
+    assert server.family_of("  Eng_Latn ") == "Germanic"
+    assert server.family_of("zh") == "Sino-Tibetan"
+
+
+def test_family_of_still_falls_back_to_other_for_nonsense():
+    assert server.family_of("xx") == "Other"
+    assert server.family_of("") == "Other"
