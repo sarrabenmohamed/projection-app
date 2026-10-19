@@ -39,6 +39,7 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #flores-load-button { font-size: 0.8em; width: 100%; margin-top: 8px; padding: 4px 0; cursor: pointer; }
 #load-controls select { font-size: 0.8em; width: 100%; }
 #load-controls input[type=number] { font-size: 0.8em; width: 100%; padding: 2px 4px; }
+[hidden] { display: none !important; }
 .param-row { display: flex; gap: 6px; }
 .param-row .param-field { flex: 1; min-width: 0; }
 .param-row label { margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -79,26 +80,15 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 
 .hidden { display: none !important; }
 .view-panel { display: flex; flex-direction: column; overflow: hidden; }
-.view-panel.fullscreen { flex: 1 !important; height: auto !important; }
-
-#layout-config-toggle {
-  /* Sits just left of the projection panel's fullscreen (resize) button
-     rather than on top of it — that button is flush against the
-     viewport's right edge (10px header padding + 20px button width),
-     so this needs at least a 38px right offset to clear it. */
-  position: fixed; top: 8px; right: 38px; z-index: 500;
-  width: 28px; height: 28px; border-radius: 50%;
-  border: 1px solid #ccc; background: #fff; cursor: pointer; font-size: 14px;
-}
-#layout-config-panel {
-  display: none;
-  position: fixed; top: 42px; right: 38px; z-index: 500;
-  background: #fff; border: 1px solid #ddd; border-radius: 4px;
-  padding: 8px 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  font-size: 0.8em;
-}
-#layout-config-panel.visible { display: block; }
-#layout-config-panel label { display: block; margin: 4px 0; cursor: pointer; white-space: nowrap; }
+.view-panel.fullscreen, .view-panel.grow { flex: 1 !important; height: auto !important; }
+.view-panel.collapsed { flex: 0 0 auto !important; height: auto !important; }
+.view-panel.collapsed > :not(.view-header) { display: none !important; }
+.view-actions { display: flex; gap: 4px; }
+.sidebar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+#sidebar.collapsed { width: 36px; min-width: 36px; padding: 16px 6px; overflow: hidden; }
+#sidebar.collapsed > :not(.sidebar-header) { display: none !important; }
+#sidebar.collapsed .sidebar-header { justify-content: center; margin-bottom: 0; }
+#sidebar.collapsed .view-title { display: none; }
 
 .view-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -117,7 +107,6 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table-panel { height: 260px; flex-shrink: 0; border-top: 1px solid #ddd; background: #fff; }
 /* Projection is hidden (not just collapsed via its own fullscreen class) -
    let the table take the freed space instead of leaving it blank. */
-#projection-panel.hidden ~ #data-table-panel { flex: 1; height: auto; }
 #data-table { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }

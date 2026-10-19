@@ -10,6 +10,10 @@
 
 <div id="app">
   <div id="sidebar">
+    <div class="sidebar-header">
+      <span class="view-title">Controls</span>
+      <button type="button" class="view-btn collapse-btn" data-collapse="sidebar"></button>
+    </div>
     <div id="load-controls">
       <label for="file-input">Load embeddings JSON:</label>
       <button type="button" id="format-help-toggle" title="What format does this file need to be?">?</button>
@@ -104,7 +108,7 @@
         <option value="braycurtis">braycurtis</option>
         <option value="canberra">canberra</option>
       </select>
-      <div class="param-row">
+      <div id="umap-params" class="param-row">
         <div class="param-field">
           <label for="umap-n-neighbors" title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against.">neighbors:</label>
           <input type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
@@ -113,14 +117,18 @@
           <label for="umap-min-dist" title="How tightly points are allowed to pack together (0 = tightest).">min_dist:</label>
           <input type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
         </div>
-        <div class="param-field">
-          <label for="tsne-perplexity" title="Roughly, the number of close neighbors each point is expected to have.">perplexity:</label>
-          <input type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
-        </div>
       </div>
-      <div class="param-field">
-        <label for="tsne-learning-rate" title="Leave blank for scikit-learn's automatic default.">learning_rate (blank = auto):</label>
-        <input type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
+      <div id="tsne-params" hidden>
+        <div class="param-row">
+          <div class="param-field">
+            <label for="tsne-perplexity" title="Roughly, the number of close neighbors each point is expected to have.">perplexity:</label>
+            <input type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
+          </div>
+          <div class="param-field">
+            <label for="tsne-learning-rate" title="Leave blank for scikit-learn's automatic default.">learning_rate:</label>
+            <input type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
+          </div>
+        </div>
       </div>
       <button type="button" id="refit-button">Refit</button>
       <label for="label-select">Label on hover:</label>
@@ -152,7 +160,10 @@
     <div id="projection-panel" class="view-panel">
       <div class="view-header">
         <span class="view-title">Projection</span>
-        <button type="button" class="view-btn" id="projection-fullscreen-btn" title="Fill available space">⤢</button>
+        <span class="view-actions">
+          <button type="button" class="view-btn collapse-btn" data-collapse="projection-panel"></button>
+          <button type="button" class="view-btn" id="projection-fullscreen-btn" title="Fill available space">⤢</button>
+        </span>
       </div>
       <div id="projection">
         <div id="projection-hint">No dataset loaded &mdash; embed FLORES-200 sentences or upload an embeddings JSON from the sidebar.</div>
@@ -162,14 +173,20 @@
     <div id="data-table-panel" class="view-panel">
       <div class="view-header">
         <span class="view-title">Data Table</span>
-        <button type="button" class="view-btn" id="data-table-fullscreen-btn" title="Fill available space">⤢</button>
+        <span class="view-actions">
+          <button type="button" class="view-btn collapse-btn" data-collapse="data-table-panel"></button>
+          <button type="button" class="view-btn" id="data-table-fullscreen-btn" title="Fill available space">⤢</button>
+        </span>
       </div>
       <div id="data-table"></div>
     </div>
     <div id="stats-panel" class="view-panel">
       <div class="view-header">
         <span class="view-title">Statistics / Alignment (pinned points)</span>
-        <button type="button" class="view-btn" id="stats-fullscreen-btn" title="Fill available space">⤢</button>
+        <span class="view-actions">
+          <button type="button" class="view-btn collapse-btn" data-collapse="stats-panel"></button>
+          <button type="button" class="view-btn" id="stats-fullscreen-btn" title="Fill available space">⤢</button>
+        </span>
       </div>
       <div id="stats"></div>
     </div>
@@ -179,14 +196,6 @@
 <div id="loading-overlay">
   <div class="loading-spinner"></div>
   <div id="loading-text" class="loading-text"></div>
-</div>
-
-<button type="button" id="layout-config-toggle" title="Layout settings">⚙</button>
-<div id="layout-config-panel">
-  <label><input type="checkbox" id="toggle-sidebar" checked> Sidebar</label>
-  <label><input type="checkbox" id="toggle-projection" checked> Projection</label>
-  <label><input type="checkbox" id="toggle-data-table" checked> Data Table</label>
-  <label><input type="checkbox" id="toggle-stats" checked> Statistics</label>
 </div>
 
 </body>
