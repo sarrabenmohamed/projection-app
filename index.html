@@ -65,41 +65,20 @@
       </div>
       <label for="method-select">Projection method:</label>
       <button type="button" id="projection-caveats-toggle" title="What this plot can't tell you">?</button>
-      <select id="method-select">
+      <select id="method-select" title="Projection algorithm. UMAP is faster and keeps more global structure; t-SNE emphasizes local neighborhoods.">
         <option value="umap">UMAP</option>
         <option value="tsne">t-SNE</option>
       </select>
       <div id="projection-caveats">
-        <p>What this plot can't tell you — both UMAP and t-SNE only try to
-        preserve <em>local</em> neighborhoods, so:</p>
+        <p>UMAP and t-SNE only preserve <em>local</em> neighborhoods:</p>
         <ul>
-          <li><strong>Distance between separate clusters isn't meaningful.</strong>
-          Two clusters drawn far apart aren't necessarily "more different"
-          than two drawn close together — only which points are near each
-          other within a cluster is (approximately) preserved.</li>
-          <li><strong>Cluster size/density on screen ≠ density in the real
-          embedding.</strong> t-SNE especially tends to draw similarly-sized,
-          evenly-spaced blobs regardless of how tight or spread out the
-          original high-dimensional cluster actually was.</li>
-          <li><strong>The layout is hyperparameter-dependent.</strong>
-          <code>n_neighbors</code>/<code>perplexity</code> control the
-          local-vs-global tradeoff directly — a different value can visibly
-          reshape, split, or merge clusters. What you're looking at is
-          <em>a</em> view of the structure under the current settings, not
-          <em>the</em> structure.</li>
-          <li><strong>The fixed random seed makes this reproducible, not
-          "correct."</strong> The same settings always give the same
-          layout, but a different seed (not exposed here) could give a
-          different one just as valid.</li>
-          <li><strong>"Show tokens" projects into an already-fit space.</strong>
-          New points (a sentence's tokens) are approximately fit into the
-          existing UMAP space via <code>.transform()</code> rather than
-          being part of the original fit, so they're inherently less
-          reliable than the sentence points themselves.</li>
+          <li>Distances between clusters, and cluster sizes, aren't meaningful.</li>
+          <li>The layout depends on the parameters &mdash; it is <em>a</em> view of the structure, not <em>the</em> structure.</li>
+          <li>Token points are fitted into the existing UMAP space, so they are less reliable than sentence points.</li>
         </ul>
       </div>
       <label for="metric-select">Distance metric:</label>
-      <select id="metric-select">
+      <select id="metric-select" title="How distance between embeddings is measured before projecting. Cosine ignores vector length and is the usual choice for text embeddings; euclidean also compares magnitude.">
         <option value="euclidean">euclidean</option>
         <option value="cosine">cosine</option>
         <option value="manhattan">manhattan</option>
@@ -109,30 +88,30 @@
         <option value="canberra">canberra</option>
       </select>
       <details id="projection-params">
-        <summary>Method parameters</summary>
+        <summary title="Hyperparameters of the selected projection method">Method parameters</summary>
         <div id="umap-params" class="param-row">
           <div class="param-field">
-            <label for="umap-n-neighbors" title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against.">neighbors:</label>
-            <input type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
+            <label for="umap-n-neighbors" title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200).">neighbors:</label>
+            <input title="n_neighbors — local (small) vs. global (large) structure: how many nearby points each point is compared against. Higher = smoother, more global layout (2–200)." type="number" id="umap-n-neighbors" min="2" max="200" step="1" value="15">
           </div>
           <div class="param-field">
-            <label for="umap-min-dist" title="How tightly points are allowed to pack together (0 = tightest).">min_dist:</label>
-            <input type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
+            <label for="umap-min-dist" title="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1).">min_dist:</label>
+            <input title="min_dist — how tightly UMAP may pack points together. 0 = tightest clumps, higher = more spread out (0–1)." type="number" id="umap-min-dist" min="0" max="1" step="0.05" value="0.1">
           </div>
         </div>
         <div id="tsne-params" hidden>
           <div class="param-row">
             <div class="param-field">
-              <label for="tsne-perplexity" title="Roughly, the number of close neighbors each point is expected to have.">perplexity:</label>
-              <input type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
+              <label for="tsne-perplexity" title="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500).">perplexity:</label>
+              <input title="perplexity — roughly the number of close neighbors each point is expected to have. Small = local detail, large = broader structure; must be below the number of points (2–500)." type="number" id="tsne-perplexity" min="2" max="500" step="1" value="30">
             </div>
             <div class="param-field">
-              <label for="tsne-learning-rate" title="Leave blank for scikit-learn's automatic default.">learning_rate:</label>
-              <input type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
+              <label for="tsne-learning-rate" title="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one.">learning_rate:</label>
+              <input title="learning_rate — t-SNE optimizer step size. Leave blank for scikit-learn's automatic choice; too low gives a compressed ball, too high a scattered one." type="number" id="tsne-learning-rate" min="1" step="1" placeholder="auto">
             </div>
           </div>
         </div>
-        <button type="button" id="refit-button">Refit</button>
+        <button type="button" id="refit-button" title="Re-run the projection with the current method, metric and parameters">Refit</button>
       </details>
       <label for="label-select">Label on hover:</label>
       <select id="label-select">
