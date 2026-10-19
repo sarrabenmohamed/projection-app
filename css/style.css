@@ -226,3 +226,6 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
   pointer-events: none; opacity: 0; transition: opacity 0.08s;
 }
 #ui-tooltip.visible { opacity: 1; }
+
+#fisheye-size { width: 100%; margin: 2px 0 6px; }
+.fisheye-size-label { font-size: 0.8em; color: #555; }

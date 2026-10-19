@@ -75,11 +75,15 @@ feature (translations, tokens) has something to show.
   edited values.
 - **Label on hover** — choose what the tooltip shows (text/ID/language/
   language family).
-- **Fisheye lens** — check the box, then hover the plot to magnify points
-  near the cursor (a circular lens, not a graph-topology-aware distortion)
+- **Fisheye lens** — check the box and a blue disk with a visible outline
+  appears on the plot; drag it by its centre grip (✥) or its rim and drop
+  it where you want to magnify points. The interior stays free, so you
+  can still pan and hover under it. **Lens size** sets its radius. The lens stays fixed on screen while
+  you pan/zoom. It magnifies points
+  inside it (a circular lens, not a graph-topology-aware distortion)
   — pulls apart overlapping points in a dense cluster so you can click an
   individual one; nearby points also push each other apart, not just
-  away from the cursor, so magnifying a tight cluster actually separates
+  away from the lens centre, so magnifying a tight cluster actually separates
   them instead of leaving them stacked. **Style** picks the magnification
   curve underneath: **D3** is a hand-ported version of the classic
   `d3.fisheye.circular()` plugin (exponential falloff); **Geometric** is

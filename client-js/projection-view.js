@@ -18,9 +18,12 @@ import { ZoomableAxes } from './zoomable-axes.js';
 import { Tooltip } from './tooltip.js';
 
 // Fisheye lens size (screen pixels, constant regardless of zoom) and
-// strength — fixed for now rather than exposed as UI controls.
-const FISHEYE_RADIUS = 180;
+// strength — fixed for now rather than exposed as UI controls. The lens is
+// a disk the user drags by its centre grip or its rim.
+const DEFAULT_FISHEYE_RADIUS = 110;
 const FISHEYE_DISTORTION = 3;
+const LENS_GRIP_RADIUS = 14;
+const LENS_RIM_GRAB = 8;
 
 export class ProjectionView {
   constructor(containerId) {
@@ -36,7 +39,7 @@ export class ProjectionView {
     this._applySize();
 
     this.pointLayer = new PointLayer(() => this._draw());
-    this.axes = new ZoomableAxes(this.canvas, this.width, this.height, () => this._draw());
+    this.axes = new ZoomableAxes(this.canvas, this.width, this.height, () => this._draw(), event => this._lensHit(event));
     this.tooltip = new Tooltip(this.el);
 
     this.quadtree = null;
@@ -44,12 +47,16 @@ export class ProjectionView {
     this._labelBy = 'text';
     this._fisheyeEnabled = false;
     this._fisheyeStyle = 'd3'; // 'd3' | 'geometric' — see point-layer.js's _fisheyeOffset
-    this._fisheyeFocus = null;
+    this._fisheyeRadius = DEFAULT_FISHEYE_RADIUS; // screen px
+    this._lensCenter = null;    // {x, y} screen px within the plot area (margin excluded)
+    this._lensDrag = null;
+    this._suppressClick = false;
     this._drawRafPending = false;
 
     this.canvas.addEventListener('click', event => this._onCanvasClick(event));
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
     this.canvas.addEventListener('mouseleave', () => this._onCanvasMouseLeave());
+    this.canvas.addEventListener('mousedown', event => this._onLensMouseDown(event));
   }
 
   update(points, onClickPoint) {
@@ -78,26 +85,22 @@ export class ProjectionView {
   setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
   setLabelBy(field) { this._labelBy = field; }
 
-  // Turning the lens off clears its focus immediately (rather than waiting
-  // for the next mousemove) so the plot snaps back to its undistorted
-  // layout as soon as the toggle is unchecked, even if the mouse doesn't move.
+  // Enabling drops the lens disk in the middle of the plot; the user then
+  // drags it wherever they want to magnify.
   setFisheyeEnabled(enabled) {
     this._fisheyeEnabled = enabled;
-    if (!enabled) {
-      this._fisheyeFocus = null;
-      this._draw();
-    }
+    this._lensCenter = enabled ? (this._lensCenter || { x: this.width / 2, y: this.height / 2 }) : null;
+    this._draw();
   }
 
-  // Changing style while the lens is already active re-renders with the
-  // new curve immediately, at the same focus position, rather than
-  // waiting for the next mousemove.
+  setFisheyeRadius(radius) {
+    this._fisheyeRadius = radius;
+    this._draw();
+  }
+
   setFisheyeStyle(style) {
     this._fisheyeStyle = style;
-    if (this._fisheyeFocus) {
-      this._fisheyeFocus = { ...this._fisheyeFocus, style };
-      this._draw();
-    }
+    this._draw();
   }
 
   // Sets this.width/height (plot area, margin excluded) and the canvas's
@@ -133,12 +136,106 @@ export class ProjectionView {
         .y(d => baseYScale(d.y))
         .addAll(this.pointLayer.points);
     }
+    if (this._lensCenter) this._lensCenter = this._clampLens(this._lensCenter.x, this._lensCenter.y);
     this._draw();
   }
 
   _draw() {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);
-    this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId, this._fisheyeFocus);
+    this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId, this._fisheyeFocus());
+    if (this._lensCenter) this._drawLens();
+  }
+
+  // The lens lives in screen space (so panning/zooming doesn't move the
+  // disk); the point layer wants it in its pre-zoom "local" space, with the
+  // radius shrunk by the zoom so it stays a constant on-screen size.
+  _fisheyeFocus() {
+    if (!this._lensCenter) return null;
+    const [x, y] = this.axes.transform.invert([this._lensCenter.x, this._lensCenter.y]);
+    return {
+      x, y, radius: this._fisheyeRadius / this.axes.transform.k, distortion: FISHEYE_DISTORTION,
+      style: this._fisheyeStyle,
+    };
+  }
+
+  // Visible boundary: a light tint, a dark outline with a white halo (so it
+  // reads over both dense clusters and empty space), and a centre grip.
+  _drawLens() {
+    const ctx = this.ctx;
+    const cx = this.margin.left + this._lensCenter.x;
+    const cy = this.margin.top + this._lensCenter.y;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, this._fisheyeRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(70, 120, 200, 0.07)';
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = this._lensDrag ? '#1d4e9e' : '#3b6fc4';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, LENS_GRIP_RADIUS, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#3b6fc4';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✥', cx, cy + 1);
+    ctx.restore();
+  }
+
+  _clampLens(x, y) {
+    return {
+      x: Math.min(Math.max(x, 0), this.width),
+      y: Math.min(Math.max(y, 0), this.height),
+    };
+  }
+
+  // Mouse position in the same plot-area screen space as _lensCenter.
+  _plotPosition(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left - this.margin.left, y: event.clientY - rect.top - this.margin.top };
+  }
+
+  // Only the grip and the rim grab the lens; the interior stays free so
+  // panning and point hover/click still work under it.
+  _lensHit(event) {
+    if (!this._lensCenter) return false;
+    const p = this._plotPosition(event);
+    const dist = Math.hypot(p.x - this._lensCenter.x, p.y - this._lensCenter.y);
+    return dist <= LENS_GRIP_RADIUS || Math.abs(dist - this._fisheyeRadius) <= LENS_RIM_GRAB;
+  }
+
+  _onLensMouseDown(event) {
+    if (event.button !== 0 || !this._lensHit(event)) return;
+    const p = this._plotPosition(event);
+    this._lensDrag = { dx: this._lensCenter.x - p.x, dy: this._lensCenter.y - p.y };
+    this.canvas.style.cursor = 'grabbing';
+    this.tooltip.hide();
+    event.preventDefault();
+
+    const onMove = e => {
+      const q = this._plotPosition(e);
+      this._lensCenter = this._clampLens(q.x + this._lensDrag.dx, q.y + this._lensDrag.dy);
+      this._requestDraw();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      this._lensDrag = null;
+      this._suppressClick = true; // the click that follows the drop shouldn't select a point
+      setTimeout(() => { this._suppressClick = false; }, 0);
+      this.canvas.style.cursor = 'grab';
+      this._draw();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   // Coalesces redraws to at most one per animation frame. mousemove can
@@ -191,25 +288,8 @@ export class ProjectionView {
     return this.pointLayer.tokenOverlayPointAt(x, y, 8 / this.axes.transform.k);
   }
 
-  // Hit-testing (_pointAt/_overlayPointAt above) always uses the real,
-  // undistorted mouse position — the lens is a visual preview only, so
-  // clicking exactly where a point visually moved to (rather than its real
-  // position) won't select it. Radius is in screen pixels divided by the
-  // current zoom level, same pattern as the hit-test radius above, so the
-  // lens is a constant on-screen size regardless of zoom.
-  _updateFisheyeFocus(event) {
-    if (!this._fisheyeEnabled) {
-      this._fisheyeFocus = null;
-      return;
-    }
-    const [x, y] = this._screenToLocal(event);
-    this._fisheyeFocus = {
-      x, y, radius: FISHEYE_RADIUS / this.axes.transform.k, distortion: FISHEYE_DISTORTION,
-      style: this._fisheyeStyle,
-    };
-  }
-
   _onCanvasClick(event) {
+    if (this._suppressClick || this._lensHit(event)) return;
     if (this._overlayPointAt(event)) return; // token overlay points aren't clickable, just hoverable
     const d = this._pointAt(event);
     if (d) this._onClickPoint?.(d);
@@ -224,7 +304,14 @@ export class ProjectionView {
   }
 
   _onCanvasMouseMove(event) {
-    this._updateFisheyeFocus(event);
+    if (this._lensDrag) return;
+    if (this._lensHit(event)) {
+      this._hoveredId = null;
+      this.tooltip.hide();
+      this.canvas.style.cursor = 'grab';
+      this._requestDraw();
+      return;
+    }
 
     const overlayHit = this._overlayPointAt(event);
     if (overlayHit) {
@@ -244,11 +331,6 @@ export class ProjectionView {
       this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
       this.canvas.style.cursor = 'pointer';
     } else {
-      // Just hovering empty canvas space, not leaving it — hide the
-      // tooltip only. Do NOT clear _fisheyeFocus here: the lens should
-      // stay active over gaps between points, not just exactly on one;
-      // _onCanvasMouseLeave (actual mouseleave) is the only place that
-      // clears it.
       this.tooltip.hide();
       this.canvas.style.cursor = 'default';
     }
@@ -256,10 +338,8 @@ export class ProjectionView {
 
   _onCanvasMouseLeave() {
     this.tooltip.hide();
-    this.canvas.style.cursor = 'default';
-    const hadFisheyeFocus = this._fisheyeFocus !== null;
-    this._fisheyeFocus = null;
-    if (this._hoveredId !== null || hadFisheyeFocus) {
+    if (!this._lensDrag) this.canvas.style.cursor = 'default';
+    if (this._hoveredId !== null) {
       this._hoveredId = null;
       this._draw();
     }
