@@ -4,11 +4,14 @@
 // after every zoom/pan/reset so the owner knows to redraw.
 
 export class ZoomableAxes {
-  constructor(targetEl, width, height, onZoom) {
+  // blocksPan(event) -> true lets the owner claim a mousedown (e.g. to drag
+  // an overlay) so it doesn't also start a pan; wheel zoom is unaffected.
+  constructor(targetEl, width, height, onZoom, blocksPan = () => false) {
     this._targetEl = targetEl;
     this.transform = d3.zoomIdentity;
 
     this.zoom = d3.zoom()
+      .filter(event => (!event.ctrlKey || event.type === 'wheel') && !event.button && !(event.type === 'mousedown' && blocksPan(event)))
       .scaleExtent([0.5, 40])
       .extent([[0, 0], [width, height]])
       .on('zoom', event => {

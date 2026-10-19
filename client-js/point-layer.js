@@ -230,7 +230,7 @@ export class PointLayer {
 
   // fisheyeFocus, when active, is {x, y, radius, distortion} in the same
   // "local" (pre-zoom) coordinate space as baseXScale/baseYScale output —
-  // see ProjectionView._updateFisheyeFocus for how it's computed.
+  // see ProjectionView._fisheyeFocus for how it's computed.
   draw(ctx, margin, transform, hoveredId, fisheyeFocus) {
     ctx.save();
     ctx.translate(margin.left, margin.top);

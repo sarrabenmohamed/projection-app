@@ -70,6 +70,11 @@ class App {
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
       .addEventListener('change', e => this.view.setFisheyeEnabled(e.target.checked));
+    document.getElementById('fisheye-size')
+      .addEventListener('input', e => {
+        document.getElementById('fisheye-size-value').textContent = e.target.value;
+        this.view.setFisheyeRadius(Number(e.target.value));
+      });
     document.getElementById('fisheye-style-select')
       .addEventListener('change', e => this.view.setFisheyeStyle(e.target.value));
     document.getElementById('family-color-toggle')

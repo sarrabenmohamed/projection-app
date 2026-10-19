@@ -163,7 +163,7 @@ auto-switch case above, the only deliberate exception.
 `_selection`/`_detailState`:
 - The **label-on-hover** dropdown (`view.setLabelBy`) — only changes
   what the tooltip shows.
-- The **fisheye lens** toggle/hover-tracking (`view.setFisheyeEnabled`)
+- The **fisheye lens** toggle and draggable disk (`view.setFisheyeEnabled`)
   — purely a visual position distortion on the canvas; never affects
   hit-testing, which always uses real, undistorted positions.
 
