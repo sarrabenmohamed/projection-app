@@ -45,6 +45,17 @@ feature (translations, tokens) has something to show.
   **Clear selection** button to clear every pin at once — clicking empty
   canvas space no longer does this, so an incidental click doesn't wipe
   your selection.
+- **Select all** (data table) pins every row matching the current
+  search, across all pages. Narrow with the search box first, e.g.
+  `lang=deu_Latn` then Select all pins just that language.
+- **Statistics / Alignment panel** (bottom) — aggregate cosine statistics
+  for the pinned points, computed in the full embedding space rather than
+  the 2D plot: mean cosine within vs. across languages, and for every
+  language pair the mean cosine of true translations vs. unrelated
+  sentences, their gap, and retrieval accuracy (how often a translation
+  is the mutual nearest neighbor of its source, among the selection).
+  Translations are matched by `pairId`; without it only the overall
+  numbers are shown. Hide it from the ⚙ layout menu.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
   — independently toggle its tokens. **Translations** are the one
   exception: only available while exactly one point is pinned. Tokens

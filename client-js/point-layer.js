@@ -83,7 +83,7 @@ export class PointLayer {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
-    this._pins = [];
+    this._pinsById = new Map();
     this._familyModeEnabled = true; // a view preference, not per-dataset — setPoints() below doesn't reset it
     this._familyColorScale = null;
     this._showPinnedOnly = false;
@@ -94,7 +94,7 @@ export class PointLayer {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
-    this._pins = [];
+    this._pinsById = new Map();
     this._showPinnedOnly = false;
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
@@ -135,7 +135,9 @@ export class PointLayer {
   // (see setShowPinnedOnly), so this re-triggers the opacity animation
   // rather than just a plain redraw whenever that mode is active.
   setPinnedPoints(pins) {
-    this._pins = pins; // Array<{id, color, focused}>
+    // Keyed by id: select-all can pin thousands of points, and draw() looks
+    // every point up on every frame.
+    this._pinsById = new Map(pins.map(p => [p.id, p])); // Array<{id, color, focused}>
     if (this._showPinnedOnly) this._animateTo(d => this._opacityTarget(d));
     else this._onChange();
   }
@@ -148,7 +150,7 @@ export class PointLayer {
   setTokenOverlays(overlaysByPin) {
     this._tokenOverlayEntries = [];
     for (const [pinId, points] of overlaysByPin) {
-      const pin = this._pins.find(p => p.id === pinId);
+      const pin = this._pinsById.get(pinId);
       const color = pin ? pin.color : '#e63946';
       for (const point of points) {
         this._tokenOverlayEntries.push({ ...point, pinId, color });
@@ -189,7 +191,7 @@ export class PointLayer {
   }
 
   _isPinned(d) {
-    return this._pins.some(p => p.id === d.id);
+    return this._pinsById.has(d.id);
   }
 
   // Whether `d` is actively colored (as opposed to plain background gray)
@@ -330,7 +332,7 @@ export class PointLayer {
     ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
     ctx.strokeStyle = hovered ? '#333' : '#fff';
     ctx.stroke();
-    const pin = this._pins.find(p => p.id === d.id);
+    const pin = this._pinsById.get(d.id);
     if (pin) {
       ctx.beginPath();
       ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
