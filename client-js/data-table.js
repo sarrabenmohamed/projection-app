@@ -45,13 +45,14 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection }) {
+  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection, onSelectAll }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onToggleTranslations = onToggleTranslations;
     this._onToggleTokens = onToggleTokens;
     this._onToggleShowSelectedOnly = onToggleShowSelectedOnly;
     this._onClearSelection = onClearSelection;
+    this._onSelectAll = onSelectAll;
 
     this.points = [];
     this._pins = []; // Array<{point, color, focused, detail}>
@@ -69,6 +70,7 @@ export class DataTable {
       <div class="dt-top">
         <input type="text" class="dt-search" placeholder="Search, or id=/lang=/text=/pairid=...">
         <label class="dt-show-selected-label"><input type="checkbox" class="dt-show-selected"> Show selected</label>
+        <button type="button" class="dt-select-all" title="Pin every row matching the current search, across all pages">Select all</button>
         <button type="button" class="dt-clear-selection">Clear selection</button>
         <span class="dt-count"></span>
       </div>
@@ -112,6 +114,7 @@ export class DataTable {
       this._render();
       this._onToggleShowSelectedOnly(e.target.checked);
     });
+    this.container.querySelector('.dt-select-all').addEventListener('click', () => this._onSelectAll(this._visibleRows()));
     this.container.querySelector('.dt-clear-selection').addEventListener('click', () => this._onClearSelection());
     this.container.querySelector('.dt-clear-selection').disabled = true;
     this.container.querySelectorAll('th[data-key]').forEach(th => {
@@ -245,6 +248,7 @@ export class DataTable {
     const pageRows = rows.slice(this._page * PAGE_SIZE, (this._page + 1) * PAGE_SIZE);
 
     this._countEl.textContent = `${total} rows`;
+    this.container.querySelector('.dt-select-all').disabled = total === 0;
     this._pageEl.textContent = `Page ${this._page + 1} / ${totalPages}`;
 
     this.tbody.innerHTML = '';

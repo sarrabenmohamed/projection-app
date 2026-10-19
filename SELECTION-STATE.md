@@ -94,6 +94,34 @@ deleted, `_focusedId` resets to `null`, and any active translations
 isolate is cleared on the canvas. Disabled whenever `_selection` is
 empty.
 
+**Select all button** (`DataTable`'s `.dt-select-all`,
+`App.selectPoints(points)`): pins every row matching the table's current
+filter (search, translations group, show-selected), across all pages —
+not just the visible page. Points that are already pinned are skipped;
+the rest get the same treatment as the pin branch of `_togglePin`
+(next palette color, empty `_detailState` entry), in one batch so
+`_syncPins()` and the stats refresh run once. If exactly one point was
+pinned with `translations` on, that flag is cleared first, since the
+selection is about to exceed one. `_focusedId` becomes the *first* newly
+pinned row (not the last), so the table pages to the start of the
+batch instead of jumping to the end of the list. Disabled when the
+table has no rows. The palette only has 10 colors, so a large batch
+reuses them cyclically.
+
+**Statistics panel** (`StatsView`, `App._refreshStats()`): every change
+to `_selection` (`_togglePin`, `selectPoints`, `clearSelection`, a new
+dataset) re-requests `POST /stats` with the pinned ids; token or
+translation toggles don't, since they don't change the pinned set. The
+request is debounced (150ms) and guarded by a counter so a slow response
+for an older selection is dropped. An empty selection shows a hint
+instead of calling the backend. The statistics are cosine in the full
+embedding space, independent of the plot's method/metric: overall
+within- vs. cross-language mean cosine, and per language pair the mean
+cosine of true translations (shared `pairId`) vs. all other
+cross-language pairs, plus MEXA-style retrieval accuracy over the
+translations (needs at least 2). Datasets without `pairId` get the
+overall numbers only.
+
 **Show/Hide translations** (`onToggleTranslations(point)`): toggles
 `_detailState.get(point.id).translations`. Guarded by `_selection.length
 !== 1 || _selection[0] !== point.id` — a no-op if reached any other way,

@@ -119,8 +119,8 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
 #data-table .dt-show-selected-label { font-size: 0.78em; color: #555; white-space: nowrap; }
-#data-table .dt-clear-selection { font-size: 0.75em; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
-#data-table .dt-clear-selection:disabled { cursor: not-allowed; color: #aaa; }
+#data-table .dt-select-all, #data-table .dt-clear-selection { font-size: 0.75em; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+#data-table .dt-select-all:disabled, #data-table .dt-clear-selection:disabled { cursor: not-allowed; color: #aaa; }
 #data-table .dt-count { font-size: 0.75em; color: #888; white-space: nowrap; margin-left: auto; }
 #data-table .dt-scroll { flex: 1; overflow: auto; }
 #data-table table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
@@ -212,3 +212,17 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 }
 @keyframes loading-spin { to { transform: rotate(360deg); } }
 .loading-text { font-size: 0.85em; color: #444; }
+
+#stats-panel { height: 220px; flex-shrink: 0; border-top: 1px solid #ddd; background: #fff; }
+#stats { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#stats .stats-message { padding: 14px; font-size: 0.8em; color: #999; font-style: italic; }
+#stats .stats-cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #eee; flex-shrink: 0; }
+#stats .stats-card { min-width: 96px; padding: 4px 10px; background: #f7f7f7; border: 1px solid #eee; border-radius: 4px; }
+#stats .stats-card-value { font-size: 0.95em; font-weight: 600; color: #333; }
+#stats .stats-card-label { font-size: 0.7em; color: #777; white-space: nowrap; }
+#stats .stats-table-wrap { flex: 1; overflow: auto; }
+#stats .stats-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+#stats .stats-table thead { position: sticky; top: 0; background: #f7f7f7; }
+#stats .stats-table th { text-align: left; padding: 5px 8px; border-bottom: 2px solid #ddd; cursor: pointer; white-space: nowrap; }
+#stats .stats-table th:hover { background: #eee; }
+#stats .stats-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-variant-numeric: tabular-nums; }

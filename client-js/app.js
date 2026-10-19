@@ -7,6 +7,7 @@ import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
 import { LangFilter } from './lang-filter.js';
+import { StatsView } from './stats-view.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
 
 const BACKEND_URL = 'http://localhost:8500';
@@ -24,8 +25,10 @@ class App {
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
         onClearSelection: () => this.clearSelection(),
+        onSelectAll: points => this.selectPoints(points),
       }
     );
+    this.stats = new StatsView({ containerId: 'stats' });
     this.langFilter = new LangFilter(
       { inputId: 'lang-search', suggestionsId: 'lang-suggestions', chipsId: 'lang-chips' },
       selected => this.view.setLangFilter(selected)
@@ -35,6 +38,8 @@ class App {
     this._focusedId = null;
     this._detailState = new Map();  // id -> {translations, tokens, tokenPoints}
     this._pinColors = new Map();    // id -> color string
+    this._statsRequest = 0;         // bumps on every selection change so a stale /stats response is dropped
+    this._statsTimer = null;
   }
 
   async init() {
@@ -77,6 +82,8 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('projection-panel'));
     document.getElementById('data-table-fullscreen-btn')
       .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
+    document.getElementById('stats-fullscreen-btn')
+      .addEventListener('click', () => this._toggleFullscreen('stats-panel'));
     this._initLayoutConfig();
     this._initResizeHandle();
     installActionsMenuOutsideClickHandler();
@@ -105,8 +112,8 @@ class App {
   // leave #main empty with no way to get either back.
   _initLayoutConfig() {
     const STORAGE_KEY = 'projection-app-layout';
-    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel' };
-    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table' };
+    const panelIdFor = { sidebar: 'sidebar', projection: 'projection-panel', dataTable: 'data-table-panel', stats: 'stats-panel' };
+    const checkboxIdFor = { sidebar: 'toggle-sidebar', projection: 'toggle-projection', dataTable: 'toggle-data-table', stats: 'toggle-stats' };
 
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { saved = {}; }
@@ -140,7 +147,7 @@ class App {
         for (const k of Object.keys(checkboxIdFor)) current[k] = document.getElementById(checkboxIdFor[k]).checked;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
 
-        if (key === 'projection' && this.view) this.view.resize();
+        if (this.view) this.view.resize(); // any panel can change the projection's available height
         this._updateResizeHandleVisibility();
       });
     }
@@ -151,7 +158,7 @@ class App {
   // before entering fullscreen (not just "show everything") — so
   // exiting fullscreen doesn't undo a layout-config choice made earlier.
   _toggleFullscreen(panelId) {
-    const ALL_PANEL_IDS = ['projection-panel', 'data-table-panel'];
+    const ALL_PANEL_IDS = ['projection-panel', 'data-table-panel', 'stats-panel'];
     const panel = document.getElementById(panelId);
     const turningOn = !panel.classList.contains('fullscreen');
 
@@ -320,6 +327,7 @@ class App {
     this.view.clearHighlight();
     this.view.setPinnedPoints([]);
     this.view.setTokenOverlays(new Map());
+    this._refreshStats();
     this._setShowSelectedOnly(false); // DataTable.setPoints() below resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
 
     const coordsById = new Map(proj.points.map(p => [p.id, p]));
@@ -380,8 +388,9 @@ class App {
   // canvas rings/overlays and the table's rendered actions never drift
   // from _selection/_detailState.
   _syncPins() {
+    const pointsById = new Map(this.points.map(p => [p.id, p]));
     const pins = this._selection.map(id => ({
-      point: this.points.find(p => p.id === id),
+      point: pointsById.get(id),
       color: this._pinColors.get(id),
       focused: id === this._focusedId,
       detail: this._detailState.get(id),
@@ -469,6 +478,35 @@ class App {
       }
     }
     this._syncPins();
+    this._refreshStats();
+  }
+
+  // Pins every point in `points` that isn't pinned yet (the data table's
+  // Select all, which passes every row matching its current filter, across
+  // all pages). Same rules as _togglePin's pin branch, applied in one batch
+  // so the canvas/table/stats sync runs once instead of per point.
+  selectPoints(points) {
+    const toAdd = points.filter(p => !this._detailState.has(p.id));
+    if (toAdd.length === 0) return;
+    // Translations only exist while exactly one point is pinned (see
+    // _togglePin), and this always takes the selection past one.
+    if (this._selection.length === 1) {
+      const soleDetail = this._detailState.get(this._selection[0]);
+      if (soleDetail.translations) {
+        soleDetail.translations = false;
+        this.view.clearHighlight();
+      }
+    }
+    for (const point of toAdd) {
+      this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
+      this._selection.push(point.id);
+      this._detailState.set(point.id, { translations: false, tokens: false, tokenPoints: [] });
+    }
+    // First, not last: the table pages to the focused row, and a batch
+    // select-all shouldn't jump you to the end of the list.
+    this._focusedId = toAdd[0].id;
+    this._syncPins();
+    this._refreshStats();
   }
 
   clearSelection() {
@@ -479,6 +517,30 @@ class App {
     this._pinColors.clear();
     this.view.clearHighlight();
     this._syncPins();
+    this._refreshStats();
+  }
+
+  // Recomputes the statistics panel for the current selection. Debounced so
+  // a burst of pin toggles costs one request, and guarded by a request
+  // counter so a slow response for an older selection never overwrites a
+  // newer one.
+  _refreshStats() {
+    clearTimeout(this._statsTimer);
+    const request = ++this._statsRequest;
+    const ids = [...this._selection];
+    if (ids.length === 0) {
+      this.stats.clear();
+      return;
+    }
+    this.stats.setLoading();
+    this._statsTimer = setTimeout(async () => {
+      try {
+        const result = await this.backend.fetchStats(ids);
+        if (request === this._statsRequest) this.stats.setStats(result);
+      } catch (err) {
+        if (request === this._statsRequest) this.stats.setError(err.message);
+      }
+    }, 150);
   }
 
   // Translations only exist for exactly one pinned point at a time — see

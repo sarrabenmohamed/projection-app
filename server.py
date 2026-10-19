@@ -10,6 +10,7 @@ Endpoints:
     GET  /project                 2D coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
     GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist= must match).
     GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
+    POST /stats                   aggregate cosine/alignment statistics for a set of selected point ids.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import sys
 import types
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Callable, List, Literal, Optional, Union
 
 # umap-learn unconditionally imports its optional ParametricUMAP submodule,
 # which unconditionally does `import tensorflow`. On machines where the
@@ -41,6 +42,7 @@ if "tensorflow" not in sys.modules:
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import umap
 from sklearn.manifold import TSNE
 from sklearn.metrics import pairwise_distances
@@ -377,4 +379,113 @@ def project_tokens(
             {"token": t["token"], "x": float(coords[i][0]), "y": float(coords[i][1])}
             for i, t in enumerate(token_vectors)
         ],
+    }
+
+
+class StatsRequest(BaseModel):
+    ids: List[Union[str, int]]
+
+
+def _unit_rows(vectors: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    return vectors / np.maximum(norms, 1e-12)
+
+
+def _mean_pairwise_cosine_sums(unit: np.ndarray) -> tuple[float, int]:
+    """(sum of cosine over all unordered pairs, number of such pairs) for unit
+    rows, via |sum u|^2 = n + 2 * sum_{i<j} u_i . u_j — O(n*d), no n x n matrix."""
+    n = len(unit)
+    total = unit.sum(axis=0)
+    return (float(total @ total) - n) / 2, n * (n - 1) // 2
+
+
+def _retrieval_accuracy(sim: np.ndarray) -> Optional[float]:
+    """MEXA-style score for a square similarity matrix whose diagonal holds the
+    true translation pairs: the fraction of diagonal entries that strictly beat
+    every other entry in their row and in their column."""
+    n = len(sim)
+    if n < 2:
+        return None
+    diag = np.diag(sim)
+    off = sim.copy()
+    np.fill_diagonal(off, -np.inf)
+    hits = (diag > off.max(axis=1)) & (diag > off.max(axis=0))
+    return float(hits.mean())
+
+
+def _mean_or_none(values: list[float]) -> Optional[float]:
+    return float(np.mean(values)) if values else None
+
+
+@app.post("/stats")
+def stats(req: StatsRequest) -> dict:
+    """Aggregate statistics over the selected points, always cosine in the full
+    embedding space (not the 2D projection) — the usual convention for alignment.
+
+    `overall` splits the mean pairwise cosine into same-language and
+    cross-language pairs. `language_pairs` compares, per language pair, the
+    mean cosine of true translations (same pairId) against all other
+    cross-language pairs, plus retrieval accuracy over the translations."""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="select at least one point")
+    d = _current_dataset()
+    by_id = {str(p["id"]): p for p in d["points"]}
+    missing = [i for i in req.ids if str(i) not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"no point with id {str(missing[0])!r}")
+
+    selected = list({str(i): by_id[str(i)] for i in req.ids}.values())
+    langs = sorted({p["lang"] for p in selected})
+    unit_by_lang: dict[str, np.ndarray] = {}
+    pair_ids_by_lang: dict[str, dict] = {}
+    for lang in langs:
+        members = [p for p in selected if p["lang"] == lang]
+        unit_by_lang[lang] = _unit_rows(np.array([p["vector"] for p in members], dtype=np.float64))
+        first_row: dict = {}
+        for row, p in enumerate(members):
+            if p.get("pairId") is not None:
+                first_row.setdefault(p["pairId"], row)
+        pair_ids_by_lang[lang] = first_row
+
+    all_sum, all_pairs = _mean_pairwise_cosine_sums(np.vstack(list(unit_by_lang.values())))
+    within_sum = within_pairs = 0
+    for unit in unit_by_lang.values():
+        s, n_pairs = _mean_pairwise_cosine_sums(unit)
+        within_sum += s
+        within_pairs += n_pairs
+    cross_pairs = all_pairs - within_pairs
+
+    language_pairs = []
+    for ai, a in enumerate(langs):
+        for b in langs[ai + 1:]:
+            sim = unit_by_lang[a] @ unit_by_lang[b].T
+            common = sorted(set(pair_ids_by_lang[a]) & set(pair_ids_by_lang[b]), key=str)
+            rows = [pair_ids_by_lang[a][pid] for pid in common]
+            cols = [pair_ids_by_lang[b][pid] for pid in common]
+            parallel = sim[rows, cols]
+            n_other = sim.size - len(common)
+            language_pairs.append({
+                "a": a, "b": b,
+                "n_parallel": len(common),
+                "parallel_cosine": float(parallel.mean()) if len(common) else None,
+                "non_parallel_cosine": float((sim.sum() - parallel.sum()) / n_other) if n_other else None,
+                "retrieval_accuracy": _retrieval_accuracy(sim[np.ix_(rows, cols)]) if len(common) else None,
+            })
+
+    return {
+        "n_selected": len(selected),
+        "n_languages": len(langs),
+        "languages": [
+            {"lang": lang, "family": family_of(lang), "count": len(unit_by_lang[lang])} for lang in langs
+        ],
+        "overall": {
+            "within_language": (within_sum / within_pairs) if within_pairs else None,
+            "cross_language": ((all_sum - within_sum) / cross_pairs) if cross_pairs else None,
+        },
+        "summary": {
+            "parallel_cosine": _mean_or_none([lp["parallel_cosine"] for lp in language_pairs if lp["parallel_cosine"] is not None]),
+            "non_parallel_cosine": _mean_or_none([lp["non_parallel_cosine"] for lp in language_pairs if lp["non_parallel_cosine"] is not None]),
+            "retrieval_accuracy": _mean_or_none([lp["retrieval_accuracy"] for lp in language_pairs if lp["retrieval_accuracy"] is not None]),
+        },
+        "language_pairs": language_pairs,
     }

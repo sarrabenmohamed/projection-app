@@ -1,6 +1,7 @@
 import copy
 import json
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -384,3 +385,71 @@ def test_neighbors_404_for_unknown_id(client):
 def test_neighbors_rejects_k_out_of_range(client):
     assert client.get("/neighbors/en-0?k=0").status_code == 422
     assert client.get("/neighbors/en-0?k=101").status_code == 422
+
+
+def test_stats_summarizes_selection_by_language(client):
+    res = client.post("/stats", json={"ids": ["en-0", "en-2", "de-0"]})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["n_selected"] == 3
+    assert body["n_languages"] == 2
+    assert {l["lang"]: l["count"] for l in body["languages"]} == {"en": 2, "de": 1}
+
+
+def test_stats_overall_cosine_splits_within_and_cross_language(client):
+    body = client.post("/stats", json={"ids": ["en-0", "en-2", "de-0"]}).json()
+    vec = {p["id"]: np.array(p["vector"]) for p in SAMPLE_DATASET["points"]}
+
+    def cos(a, b):
+        return float(vec[a] @ vec[b] / np.linalg.norm(vec[a]) / np.linalg.norm(vec[b]))
+
+    assert body["overall"]["within_language"] == pytest.approx(cos("en-0", "en-2"))
+    assert body["overall"]["cross_language"] == pytest.approx((cos("en-0", "de-0") + cos("en-2", "de-0")) / 2)
+
+
+def test_stats_language_pair_compares_parallel_to_non_parallel(client):
+    body = client.post("/stats", json={"ids": ["en-0", "de-0", "en-2", "de-2"]}).json()
+    (pair,) = body["language_pairs"]
+    assert (pair["a"], pair["b"]) == ("de", "en")
+    assert pair["n_parallel"] == 2
+    vec = {p["id"]: np.array(p["vector"]) for p in SAMPLE_DATASET["points"]}
+
+    def cos(a, b):
+        return float(vec[a] @ vec[b] / np.linalg.norm(vec[a]) / np.linalg.norm(vec[b]))
+
+    assert pair["parallel_cosine"] == pytest.approx((cos("en-0", "de-0") + cos("en-2", "de-2")) / 2)
+    assert pair["non_parallel_cosine"] == pytest.approx((cos("en-0", "de-2") + cos("en-2", "de-0")) / 2)
+
+
+def test_stats_retrieval_accuracy_counts_mutual_nearest_translations():
+    en = np.array([[1.0, 0.0], [0.0, 1.0]])
+    de_aligned = np.array([[0.9, 0.1], [0.1, 0.9]])
+    de_swapped = np.array([[0.1, 0.9], [0.9, 0.1]])
+    assert server._retrieval_accuracy(en @ de_aligned.T) == 1.0
+    assert server._retrieval_accuracy(en @ de_swapped.T) == 0.0
+
+
+def test_stats_single_pair_has_no_retrieval_accuracy(client):
+    body = client.post("/stats", json={"ids": ["en-0", "de-0"]}).json()
+    assert body["language_pairs"][0]["n_parallel"] == 1
+    assert body["language_pairs"][0]["retrieval_accuracy"] is None
+
+
+def test_stats_one_language_has_no_pairs_or_cross_language_cosine(client):
+    body = client.post("/stats", json={"ids": ["en-0", "en-2"]}).json()
+    assert body["language_pairs"] == []
+    assert body["overall"]["cross_language"] is None
+
+
+def test_stats_single_point_has_no_pairwise_values(client):
+    body = client.post("/stats", json={"ids": ["en-0"]}).json()
+    assert body["n_selected"] == 1
+    assert body["overall"]["within_language"] is None
+
+
+def test_stats_empty_selection_is_400(client):
+    assert client.post("/stats", json={"ids": []}).status_code == 400
+
+
+def test_stats_unknown_id_is_404(client):
+    assert client.post("/stats", json={"ids": ["en-0", "nope"]}).status_code == 404
