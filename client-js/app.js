@@ -47,8 +47,8 @@ class App {
 
     document.getElementById('file-input')
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
-    document.getElementById('reset-dataset-button')
-      .addEventListener('click', () => this._onResetDataset());
+    document.getElementById('flores-load-button')
+      .addEventListener('click', () => this._onLoadFlores());
     document.getElementById('method-select')
       .addEventListener('change', () => this._refresh());
     document.getElementById('metric-select')
@@ -274,20 +274,31 @@ class App {
     reader.readAsText(file);
   }
 
-  // Discards whatever's currently loaded (e.g. an uploaded file) and
-  // reloads the default FLORES-200 dataset — the backend's /dataset/reset
-  // does the actual swap; this just clears the file input (so re-picking
-  // the same file still fires a change event) and re-runs the same
-  // fetch-points-and-project flow every other dataset change goes through.
-  async _onResetDataset() {
-    this._setLoading(true, 'Resetting to default dataset...');
+  // Asks the backend to embed the chosen FLORES-200 subset (or serve it from
+  // its cache) and then runs the same fetch-points-and-project flow every
+  // other dataset change goes through. The file input is cleared so
+  // re-picking the same file still fires a change event.
+  async _onLoadFlores() {
+    const lang_codes = document.getElementById('flores-langs').value
+      .split(/[\s,;]+/).filter(Boolean);
+    const config = {
+      lang_codes,
+      n_sentences: parseInt(document.getElementById('flores-n').value, 10),
+      model: document.getElementById('flores-model').value.trim(),
+      pooling: document.getElementById('flores-pooling').value,
+    };
+    const button = document.getElementById('flores-load-button');
+    button.disabled = true;
+    this._setLoading(true, `Embedding ${lang_codes.length} languages × ${config.n_sentences} sentences (first run can take minutes)...`);
     try {
-      await this.backend.resetDataset();
+      await this.backend.loadFlores(config);
     } catch (err) {
       this._setLoading(false);
+      button.disabled = false;
       document.getElementById('status').textContent = err.message;
       return;
     }
+    button.disabled = false;
     this._setLoading(false);
     document.getElementById('file-input').value = '';
     this._refresh();

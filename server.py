@@ -16,9 +16,9 @@ Endpoints:
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import math
-import os
 import re
 import sys
 import types
@@ -51,16 +51,12 @@ from sklearn.metrics import pairwise_distances
 
 import embedding_pipeline
 
-DEFAULT_DATA_PATH = Path(__file__).parent / "data" / "flores_embeddings.json"
-# The 40 languages FLORES-200 covers with reasonable coverage across major
-# scripts/families; override with PROJECTION_LANGUAGES for a smaller/faster set.
-DEFAULT_LANGUAGES = (
-    "eng_Latn,zho_Hans,zho_Hant,spa_Latn,fra_Latn,deu_Latn,jpn_Jpan,kor_Hang,rus_Cyrl,por_Latn,"
-    "ita_Latn,nld_Latn,pol_Latn,tur_Latn,vie_Latn,ind_Latn,tha_Thai,ukr_Cyrl,swe_Latn,ces_Latn,"
-    "ron_Latn,hun_Latn,fin_Latn,dan_Latn,heb_Hebr,arb_Arab,pes_Arab,urd_Arab,hin_Deva,ben_Beng,"
-    "tam_Taml,tel_Telu,mal_Mlym,kan_Knda,guj_Gujr,pan_Guru,sin_Sinh,mya_Mymr,khm_Khmr,amh_Ethi"
-)
-DEFAULT_N_SENTENCES = 200
+DATA_DIR = Path(__file__).parent / "data"
+# FLORES-200 devtest has 1012 sentences per language and 204 language/script variants.
+FLORES_DEVTEST_SIZE = 1012
+MAX_FLORES_LANGUAGES = 204
+FLORES_CODE_RE = re.compile(r"^[a-z]{3}_[A-Z][a-z]{3}$")
+POOLINGS = ("mean", "max", "cls")
 DEFAULT_MODEL = "xlm-roberta-base"
 DEFAULT_POOLING = "mean"
 
@@ -179,14 +175,34 @@ def validate_and_normalize(raw: dict) -> dict:
     }
 
 
-def _pipeline_config() -> dict:
-    langs = os.environ.get("PROJECTION_LANGUAGES", DEFAULT_LANGUAGES)
-    return {
-        "lang_codes": [c.strip() for c in langs.split(",") if c.strip()],
-        "n_sentences": int(os.environ.get("PROJECTION_N_SENTENCES", DEFAULT_N_SENTENCES)),
-        "model": os.environ.get("PROJECTION_MODEL", DEFAULT_MODEL),
-        "pooling": os.environ.get("PROJECTION_POOLING", DEFAULT_POOLING),
-    }
+def _flores_config(raw: dict) -> dict:
+    """Validates a POST /dataset/flores body into the pipeline's config dict."""
+    codes = raw.get("lang_codes")
+    if not isinstance(codes, list) or not codes or not all(isinstance(c, str) for c in codes):
+        raise ValueError("lang_codes must be a non-empty list of FLORES-200 codes like eng_Latn")
+    codes = list(dict.fromkeys(c.strip() for c in codes))
+    bad = [c for c in codes if not FLORES_CODE_RE.match(c)]
+    if bad:
+        raise ValueError(f"Not FLORES-200 language codes (expected e.g. eng_Latn): {', '.join(bad[:5])}")
+    if len(codes) > MAX_FLORES_LANGUAGES:
+        raise ValueError(f"At most {MAX_FLORES_LANGUAGES} languages")
+
+    n = raw.get("n_sentences")
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= FLORES_DEVTEST_SIZE:
+        raise ValueError(f"n_sentences must be an integer between 1 and {FLORES_DEVTEST_SIZE}")
+
+    model = raw.get("model", DEFAULT_MODEL)
+    if not isinstance(model, str) or not model.strip() or len(model) > 200:
+        raise ValueError("model must be a non-empty Hugging Face model name")
+    pooling = raw.get("pooling", DEFAULT_POOLING)
+    if pooling not in POOLINGS:
+        raise ValueError(f"pooling must be one of {', '.join(POOLINGS)}")
+    return {"lang_codes": codes, "n_sentences": n, "model": model.strip(), "pooling": pooling}
+
+
+def _flores_cache_path(config: dict) -> Path:
+    key = json.dumps([sorted(config["lang_codes"]), config["n_sentences"], config["model"], config["pooling"]])
+    return DATA_DIR / f"flores_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json"
 
 
 def _cache_matches(cached: dict, config: dict) -> bool:
@@ -216,44 +232,30 @@ def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) ->
     return built
 
 
-def _build_default_dataset() -> dict:
-    config = _pipeline_config()
-    print(f"Preparing default dataset: {config}")
-    raw = _load_or_build_dataset(DEFAULT_DATA_PATH, config, embedding_pipeline.build_dataset)
-    return validate_and_normalize(raw)
-
-
-@app.on_event("startup")
-def load_default_dataset() -> None:
+@app.post("/dataset/flores")
+def load_flores_dataset(raw: dict) -> dict:
+    """Embeds the requested FLORES-200 languages/sentences (or reads the
+    per-config cache under data/) and makes that the current dataset. Runs
+    in the threadpool since a first build can take minutes. On failure the
+    current dataset is left untouched."""
     try:
-        DATASET["data"] = _build_default_dataset()
-    except Exception as e:
-        print(f"Could not prepare default dataset ({e}) — POST /dataset to load one.")
-        return
-    DATASET["generation"] += 1
-    print(f"Loaded default dataset: {len(DATASET['data']['points'])} points")
-
-
-@app.post("/dataset/reset")
-def reset_dataset() -> dict:
-    """Reloads the default FLORES-200 dataset, discarding whatever is
-    currently loaded (e.g. an uploaded file) — the same logic startup
-    runs, callable on demand so the frontend's "Reset to default" button
-    doesn't require restarting the server. Fails loudly (500) rather than
-    startup's silent skip, since a user clicking this button expects
-    either a reset or an explanation, not nothing."""
+        config = _flores_config(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    print(f"Preparing FLORES-200 dataset: {config}")
     try:
-        DATASET["data"] = _build_default_dataset()
+        built = _load_or_build_dataset(_flores_cache_path(config), config, embedding_pipeline.build_dataset)
+        normalized = validate_and_normalize(built)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not reload the default dataset: {e}") from e
+        raise HTTPException(status_code=500, detail=f"Could not load FLORES-200: {e}") from e
+    DATASET["data"] = normalized
     DATASET["generation"] += 1
-    d = DATASET["data"]
-    return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
+    return {"n_points": len(normalized["points"]), "lang_codes": normalized["lang_codes"], "dim": normalized["dim"]}
 
 
 def _current_dataset() -> dict:
     if DATASET["data"] is None:
-        raise HTTPException(status_code=404, detail="No dataset loaded yet — POST /dataset first")
+        raise HTTPException(status_code=404, detail="No dataset loaded yet — load a FLORES-200 subset or upload an embeddings JSON")
     return DATASET["data"]
 
 

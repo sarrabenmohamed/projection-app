@@ -14,7 +14,22 @@
       <label for="file-input">Load embeddings JSON:</label>
       <button type="button" id="format-help-toggle" title="What format does this file need to be?">?</button>
       <input type="file" id="file-input" accept=".json,application/json">
-      <button type="button" id="reset-dataset-button" title="Discard the loaded file and reload the default FLORES-200 dataset">Reset to default dataset</button>
+      <details id="flores-controls">
+        <summary>Or embed FLORES-200 sentences</summary>
+        <label for="flores-langs">Languages (comma-separated FLORES-200 codes):</label>
+        <textarea id="flores-langs" rows="2" spellcheck="false">eng_Latn, deu_Latn, fra_Latn, zho_Hans, arb_Arab</textarea>
+        <label for="flores-n">Sentences per language (1&ndash;1012):</label>
+        <input type="number" id="flores-n" min="1" max="1012" value="100">
+        <label for="flores-model">Model (Hugging Face name):</label>
+        <input type="text" id="flores-model" value="xlm-roberta-base" spellcheck="false">
+        <label for="flores-pooling">Pooling:</label>
+        <select id="flores-pooling">
+          <option value="mean">mean</option>
+          <option value="max">max</option>
+          <option value="cls">cls</option>
+        </select>
+        <button type="button" id="flores-load-button">Load FLORES-200</button>
+      </details>
       <div id="format-help">
         <p>A JSON object with a <code>points</code> array. Everything except <code>points[].id</code>, <code>points[].lang</code>, and <code>points[].vector</code> is optional:</p>
 <pre>{
@@ -140,7 +155,7 @@
         <button type="button" class="view-btn" id="projection-fullscreen-btn" title="Fill available space">⤢</button>
       </div>
       <div id="projection">
-        <div id="projection-hint">Loading embeddings and running UMAP...</div>
+        <div id="projection-hint">No dataset loaded &mdash; embed FLORES-200 sentences or upload an embeddings JSON from the sidebar.</div>
       </div>
     </div>
     <div id="data-table-resize-handle" title="Drag to resize"></div>
