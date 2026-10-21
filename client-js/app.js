@@ -255,17 +255,12 @@ class App {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
-      let raw;
-      try {
-        raw = JSON.parse(reader.result);
-      } catch (err) {
-        document.getElementById('status').textContent = `Invalid file: ${err.message}`;
-        return;
-      }
+      const ext = file.name.split('.').pop().toLowerCase();
+      const format = { jsonl: 'jsonl', ndjson: 'jsonl', csv: 'csv', tsv: 'csv' }[ext] || 'json';
 
       this._setLoading(true, 'Uploading dataset...');
       try {
-        await this.backend.postDataset(raw);
+        await this.backend.uploadDataset(reader.result, format);
       } catch (err) {
         this._setLoading(false);
         document.getElementById('status').textContent = `Invalid file: ${err.message}`;

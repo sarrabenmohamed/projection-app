@@ -1,0 +1,7 @@
+{"model": "toy", "lang_families": {"en": "Germanic", "de": "Germanic", "fr": "Romance"}}
+{"id": "en-0", "lang": "en", "pairId": 0, "text": "Hello", "vector": [0.9, 0.1, 0.0]}
+{"id": "de-0", "lang": "de", "pairId": 0, "text": "Hallo", "vector": [0.85, 0.15, 0.05]}
+{"id": "fr-0", "lang": "fr", "pairId": 0, "text": "Bonjour", "vector": [0.8, 0.2, 0.3]}
+{"id": "en-1", "lang": "en", "pairId": 1, "text": "Thank you", "vector": [0.1, 0.9, 0.2]}
+{"id": "de-1", "lang": "de", "pairId": 1, "text": "Danke", "vector": [0.15, 0.85, 0.25]}
+{"id": "fr-1", "lang": "fr", "pairId": 1, "text": "Merci", "vector": [0.2, 0.8, 0.5]}
