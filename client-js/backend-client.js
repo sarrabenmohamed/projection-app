@@ -44,6 +44,15 @@ export class BackendClient {
     });
   }
 
+  // Raw file text; `format` is json, jsonl or csv (parsed server-side).
+  uploadDataset(text, format) {
+    return this._request(`/dataset/upload?format=${encodeURIComponent(format)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: text,
+    });
+  }
+
   postDataset(raw) {
     return this._request('/dataset', {
       method: 'POST',

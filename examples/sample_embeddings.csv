@@ -1,0 +1,7 @@
+id,lang,pairId,text,v0,v1,v2
+en-0,en,0,Hello,0.9,0.1,0.0
+de-0,de,0,Hallo,0.85,0.15,0.05
+fr-0,fr,0,Bonjour,0.8,0.2,0.3
+en-1,en,1,Thank you,0.1,0.9,0.2
+de-1,de,1,Danke,0.15,0.85,0.25
+fr-1,fr,1,Merci,0.2,0.8,0.5

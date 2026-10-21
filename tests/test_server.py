@@ -565,3 +565,31 @@ def test_server_serves_the_frontend(client):
 def test_server_does_not_expose_source_or_data(client):
     for path in ("/server.py", "/data/", "/tests/test_server.py", "/.git/config", "/requirements.txt"):
         assert client.get(path).status_code == 404
+
+
+def test_upload_endpoint_accepts_jsonl(client):
+    body = "\n".join(
+        json.dumps({"id": f"x{i}", "lang": "en" if i % 2 else "de", "pairId": i // 2, "vector": [float(i), 1.0, 0.5]})
+        for i in range(6)
+    )
+    res = client.post("/dataset/upload?format=jsonl", content=body)
+    assert res.status_code == 200
+    assert res.json()["n_points"] == 6 and res.json()["dim"] == 3
+
+
+def test_upload_endpoint_accepts_csv(client):
+    csv_text = "id,lang,text,v0,v1\na,en,hello,1,2\nb,de,hallo,3,4\n"
+    res = client.post("/dataset/upload?format=csv", content=csv_text.encode("utf-8"))
+    assert res.status_code == 200
+    assert sorted(res.json()["lang_codes"]) == ["de", "en"]
+    assert {p["text"] for p in server.DATASET["data"]["points"]} == {"hello", "hallo"}
+
+
+def test_upload_endpoint_400_on_bad_file_and_keeps_dataset(client):
+    before = server.DATASET["data"]
+    res = client.post("/dataset/upload?format=csv", content="id,lang\na,en\n")
+    assert res.status_code == 400
+    assert "vector" in res.json()["detail"]
+    assert client.post("/dataset/upload?format=nope", content="x").status_code == 400
+    assert client.post("/dataset/upload?format=json", content=b"\xff\xfe").status_code == 400
+    assert server.DATASET["data"] is before

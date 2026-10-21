@@ -106,8 +106,10 @@ feature (translations, tokens) has something to show.
   reloads. ⤢ still makes one view fill the window.
 - **Resize the data table** — drag the thin handle between the plot and
   the table; the split is remembered across reloads.
-- **Load embeddings JSON** — upload your own dataset; click "?" for the
-  expected format. **Load FLORES-200** embeds the chosen subset on the
+- **Load embeddings** — upload your own dataset as JSON, JSONL (one point
+  per line) or CSV/TSV (`id`, `lang`, optional `text`/`pairId`/`family`, and
+  either a `vector` column or one numeric column per dimension); click "?"
+  for the details. Samples are in `examples/`. **Load FLORES-200** embeds the chosen subset on the
   backend (needs the Hugging Face setup above) and replaces whatever is
   loaded, without restarting the server.
 

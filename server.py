@@ -43,7 +43,7 @@ if "tensorflow" not in sys.modules:
     sys.modules["tensorflow"] = tf_stub
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +53,7 @@ from sklearn.manifold import TSNE
 from sklearn.metrics import pairwise_distances
 
 import embedding_pipeline
+from dataset_formats import parse_dataset_text
 
 DATA_DIR = Path(__file__).parent / "data"
 # FLORES-200 devtest has 1012 sentences per language and 204 language/script variants.
@@ -272,6 +273,22 @@ async def set_dataset(raw: dict) -> dict:
     DATASET["generation"] += 1
     d = DATASET["data"]
     return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
+
+
+@app.post("/dataset/upload")
+async def upload_dataset(request: Request, format: str = "json") -> dict:
+    """Raw file text in the request body; `format` is json, jsonl or csv
+    (see dataset_formats.py). Leaves the current dataset untouched on error."""
+    try:
+        text = (await request.body()).decode("utf-8-sig")
+        normalized = validate_and_normalize(parse_dataset_text(text, format))
+    except UnicodeDecodeError as e:
+        raise HTTPException(status_code=400, detail="The file isn't valid UTF-8 text") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    DATASET["data"] = normalized
+    DATASET["generation"] += 1
+    return {"n_points": len(normalized["points"]), "lang_codes": normalized["lang_codes"], "dim": normalized["dim"]}
 
 
 @app.get("/points")

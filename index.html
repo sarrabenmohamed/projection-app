@@ -15,9 +15,9 @@
       <button type="button" class="view-btn collapse-btn" data-collapse="sidebar"></button>
     </div>
     <div id="load-controls">
-      <label for="file-input">Load embeddings JSON:</label>
+      <label for="file-input">Load embeddings (JSON, JSONL or CSV):</label>
       <button type="button" id="format-help-toggle" title="What format does this file need to be?">?</button>
-      <input type="file" id="file-input" accept=".json,application/json">
+      <input type="file" id="file-input" accept=".json,.jsonl,.ndjson,.csv,.tsv,application/json">
       <details id="flores-controls">
         <summary>Or embed FLORES-200 sentences</summary>
         <label for="flores-langs">Languages (comma-separated FLORES-200 codes):</label>
@@ -35,7 +35,9 @@
         <button type="button" id="flores-load-button">Load FLORES-200</button>
       </details>
       <div id="format-help">
-        <p>A JSON object with a <code>points</code> array. Everything except <code>points[].id</code>, <code>points[].lang</code>, and <code>points[].vector</code> is optional:</p>
+        <p><strong>JSONL</strong> (<code>.jsonl</code>): one point object per line (<code>id</code>, <code>lang</code>, <code>vector</code>, ...). Optional leading lines without a <code>vector</code> carry metadata such as <code>model</code> or <code>lang_families</code>.</p>
+        <p><strong>CSV / TSV</strong> (<code>.csv</code>, <code>.tsv</code>): a header row with <code>id</code>, <code>lang</code> and optionally <code>text</code>, <code>pairId</code>, <code>family</code>. The vector is either a single <code>vector</code> column (<code>[0.1, -0.4]</code> or space-separated numbers) or one numeric column per dimension (<code>v0</code>, <code>v1</code>, ...; every column that isn't named above). Token vectors need JSON.</p>
+        <p><strong>JSON</strong>: an object with a <code>points</code> array. Everything except <code>points[].id</code>, <code>points[].lang</code>, and <code>points[].vector</code> is optional:</p>
 <pre>{
   "model": "any string (informational)",
   "layer": "any string (informational)",
