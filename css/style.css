@@ -11,6 +11,8 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
   border-right: 1px solid #ddd;
   overflow-y: auto;
 }
+.error-msg { margin-top: 8px; padding: 6px 8px; font-size: 0.9em; color: #8a1c1c; background: #fdecec; border: 1px solid #f3b8b8; border-radius: 3px; white-space: pre-wrap; word-break: break-word; }
+#status.error { color: #b00020; font-style: normal; }
 #status { font-size: 0.8em; color: #888; font-style: italic; margin-bottom: 12px; }
 
 #lang-filter-controls { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #ddd; }

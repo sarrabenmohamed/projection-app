@@ -263,7 +263,7 @@ class App {
         await this.backend.uploadDataset(reader.result, format);
       } catch (err) {
         this._setLoading(false);
-        document.getElementById('status').textContent = `Invalid file: ${err.message}`;
+        this._setStatus(`Invalid file: ${err.message}`, true);
         return;
       }
       this._setLoading(false);
@@ -271,6 +271,12 @@ class App {
       this._refresh();
     };
     reader.readAsText(file);
+  }
+
+  _setStatus(text, isError = false) {
+    const el = document.getElementById('status');
+    el.textContent = text;
+    el.classList.toggle('error', isError);
   }
 
   // Asks the backend to embed the chosen FLORES-200 subset (or serve it from
@@ -287,6 +293,8 @@ class App {
       pooling: document.getElementById('flores-pooling').value,
     };
     const button = document.getElementById('flores-load-button');
+    const errorBox = document.getElementById('flores-error');
+    errorBox.hidden = true;
     button.disabled = true;
     this._setLoading(true, `Embedding ${lang_codes.length} languages × ${config.n_sentences} sentences (first run can take minutes)...`);
     try {
@@ -294,7 +302,9 @@ class App {
     } catch (err) {
       this._setLoading(false);
       button.disabled = false;
-      document.getElementById('status').textContent = err.message;
+      errorBox.textContent = err.message;
+      errorBox.hidden = false;
+      this._setStatus('FLORES-200 load failed.', true);
       return;
     }
     button.disabled = false;
@@ -307,7 +317,7 @@ class App {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
     const hyperparams = method === 'umap' ? this._umapParams() : this._tsneParams();
-    document.getElementById('status').textContent = `Running ${method} (${metric})...`;
+    this._setStatus(`Running ${method} (${metric})...`);
     this._setLoading(true, `Running ${method} (${metric})...`);
 
     let meta, proj;
@@ -318,7 +328,7 @@ class App {
       ]);
     } catch (err) {
       this._setLoading(false);
-      document.getElementById('status').textContent = err.message;
+      this._setStatus(err.message, true);
       return;
     }
 
@@ -601,7 +611,7 @@ class App {
       proj = await this.backend.fetchTokenProjection(point.id, metric, this._umapParams());
     } catch (err) {
       this._setLoading(false);
-      document.getElementById('status').textContent = err.message;
+      this._setStatus(err.message, true);
       return;
     }
     this._setLoading(false);
