@@ -91,73 +91,63 @@ def test_points_endpoint_reports_token_texts(client):
     assert by_id["en-1"]["tokenTexts"] == ["bye", "!"]
 
 
-def test_cache_matches_true_when_config_matches():
-    cached = {
-        "model": "m", "lang_codes": ["a", "b"],
-        "points": [
-            {"lang": "a", "tokenVectors": []}, {"lang": "a", "tokenVectors": []},
-            {"lang": "b", "tokenVectors": []}, {"lang": "b", "tokenVectors": []},
-        ],
-    }
-    config = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 2, "pooling": "mean"}
-    assert server._cache_matches(cached, config) is True
+def _fake_builder(calls):
+    def build(lang_codes, n_sentences, model_name, pooling):
+        calls.append((list(lang_codes), n_sentences, model_name, pooling))
+        return {"points": [
+            {"id": f"{c}-{i}", "lang": c, "pairId": i, "vector": [float(i), 1.0], "tokenVectors": []}
+            for c in lang_codes for i in range(n_sentences)
+        ]}
+    return build
 
 
-def test_cache_matches_false_when_points_missing_token_vectors():
-    cached = {"model": "m", "lang_codes": ["a", "b"], "points": [{"lang": "a"}, {"lang": "a"}, {"lang": "b"}, {"lang": "b"}]}
-    config = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 2, "pooling": "mean"}
-    assert server._cache_matches(cached, config) is False
+CACHE_CONFIG = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 3, "pooling": "mean"}
 
 
-def test_cache_matches_false_on_model_mismatch():
-    cached = {"model": "old", "lang_codes": ["a"], "points": [{"lang": "a"}]}
-    config = {"model": "new", "lang_codes": ["a"], "n_sentences": 1, "pooling": "mean"}
-    assert server._cache_matches(cached, config) is False
+def test_load_or_build_dataset_embeds_only_new_languages(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    calls = []
+    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
+    assert calls == [(["a", "b"], 3, "m", "mean")]
+
+    result = server._load_or_build_dataset({**CACHE_CONFIG, "lang_codes": ["a", "b", "c"]}, _fake_builder(calls))
+    assert calls[1] == (["c"], 3, "m", "mean")  # a and b came from the cache
+    assert [p["id"] for p in result["points"]][:1] == ["a-0"]
+    assert result["lang_codes"] == ["a", "b", "c"] and len(result["points"]) == 9
 
 
-def test_cache_matches_false_on_sentence_count_mismatch():
-    cached = {"model": "m", "lang_codes": ["a"], "points": [{"lang": "a"}]}
-    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 2, "pooling": "mean"}
-    assert server._cache_matches(cached, config) is False
+def test_load_or_build_dataset_full_cache_hit_never_builds(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder([]))
+
+    def explode(*args):
+        raise AssertionError("builder should not run on a cache hit")
+
+    server._load_or_build_dataset(CACHE_CONFIG, explode)
 
 
-def test_cache_matches_false_on_pooling_mismatch():
-    cached = {
-        "model": "m", "lang_codes": ["a"], "pooling": "mean",
-        "points": [{"lang": "a", "tokenVectors": []}],
-    }
-    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1, "pooling": "max"}
-    assert server._cache_matches(cached, config) is False
+def test_load_or_build_dataset_serves_smaller_n_from_larger_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder([]))
+    result = server._load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, lambda *a: 1 / 0)
+    assert len(result["points"]) == 4
 
 
-def test_load_or_build_dataset_uses_cache_on_hit(tmp_path):
-    cache_path = tmp_path / "cache.json"
-    cached = {
-        "model": "m", "lang_codes": ["a"],
-        "points": [{"lang": "a", "id": "a-0", "vector": [0.0], "tokenVectors": []}],
-    }
-    cache_path.write_text(json.dumps(cached))
-    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1, "pooling": "mean"}
-
-    def fake_builder(*args):
-        raise AssertionError("builder should not be called on a cache hit")
-
-    result = server._load_or_build_dataset(cache_path, config, fake_builder)
-    assert result == cached
+def test_load_or_build_dataset_rebuilds_language_when_more_sentences_needed(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    calls = []
+    server._load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, _fake_builder(calls))
+    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
+    assert calls[1] == (["a", "b"], 3, "m", "mean")
 
 
-def test_load_or_build_dataset_rebuilds_on_cache_miss(tmp_path):
-    cache_path = tmp_path / "cache.json"
-    config = {"model": "m", "lang_codes": ["a"], "n_sentences": 1, "pooling": "mean"}
-    built = {"model": "m", "lang_codes": ["a"], "pooling": "mean", "points": [{"lang": "a", "id": "a-0", "vector": [0.0]}]}
-
-    def fake_builder(lang_codes, n_sentences, model_name, pooling):
-        assert (lang_codes, n_sentences, model_name, pooling) == (["a"], 1, "m", "mean")
-        return built
-
-    result = server._load_or_build_dataset(cache_path, config, fake_builder)
-    assert result == built
-    assert json.loads(cache_path.read_text()) == built
+def test_load_or_build_dataset_cache_is_per_model_and_pooling(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    calls = []
+    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
+    server._load_or_build_dataset({**CACHE_CONFIG, "model": "other"}, _fake_builder(calls))
+    server._load_or_build_dataset({**CACHE_CONFIG, "pooling": "max"}, _fake_builder(calls))
+    assert len(calls) == 3
 
 
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
@@ -524,15 +514,30 @@ def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
     assert res.status_code == 200
     assert res.json()["n_points"] == 6
     assert calls == [(["eng_Latn", "deu_Latn"], 3, "xlm-roberta-base", "mean")]
-    assert len(list(tmp_path.glob("flores_*.json"))) == 1
+    assert len(list(tmp_path.glob("flores_lang_*.json"))) == 2
 
     res = client.post("/dataset/flores", json=body)  # same config -> cache hit
     assert res.status_code == 200
     assert len(calls) == 1
 
-    res = client.post("/dataset/flores", json={**body, "n_sentences": 2})  # different config -> own cache file
+    res = client.post("/dataset/flores", json={**body, "n_sentences": 2})  # smaller n -> served from the same cache
     assert res.json()["n_points"] == 4
-    assert len(list(tmp_path.glob("flores_*.json"))) == 2
+    assert len(calls) == 1
+
+    res = client.post("/dataset/flores", json={**body, "lang_codes": ["eng_Latn", "deu_Latn", "fra_Latn"]})
+    assert res.json()["n_points"] == 9
+    assert calls[1][0] == ["fra_Latn"]  # only the new language is embedded
+
+
+def test_flores_endpoint_400_on_unknown_language(client, tmp_path, monkeypatch):
+    def unknown(*args, **kwargs):
+        raise server.embedding_pipeline.UnknownLanguageError('"zzz_Xxxx" is not a FLORES-200 language')
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", unknown)
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    res = client.post("/dataset/flores", json={"lang_codes": ["zzz_Xxxx"], "n_sentences": 3})
+    assert res.status_code == 400
+    assert "zzz_Xxxx" in res.json()["detail"]
 
 
 def test_flores_endpoint_400_on_bad_config(client):

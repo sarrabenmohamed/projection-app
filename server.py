@@ -23,7 +23,6 @@ import math
 import re
 import sys
 import types
-from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, List, Literal, Optional, Union
@@ -204,36 +203,56 @@ def _flores_config(raw: dict) -> dict:
     return {"lang_codes": codes, "n_sentences": n, "model": model.strip(), "pooling": pooling}
 
 
-def _flores_cache_path(config: dict) -> Path:
-    key = json.dumps([sorted(config["lang_codes"]), config["n_sentences"], config["model"], config["pooling"]])
-    return DATA_DIR / f"flores_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json"
+def _language_cache_path(code: str, model: str, pooling: str) -> Path:
+    key = json.dumps([model, pooling, code])
+    return DATA_DIR / f"flores_lang_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json"
 
 
-def _cache_matches(cached: dict, config: dict) -> bool:
-    if cached.get("model") != config["model"]:
-        return False
-    if cached.get("pooling", "mean") != config["pooling"]:
-        return False
-    if sorted(cached.get("lang_codes") or []) != sorted(config["lang_codes"]):
-        return False
-    points = cached.get("points", [])
-    if not points or points[0].get("tokenVectors") is None:
-        return False
-    counts = Counter(p["lang"] for p in points)
-    return all(counts.get(code) == config["n_sentences"] for code in config["lang_codes"])
+def _read_language_cache(code: str, config: dict):
+    """Cached points for one language (first n_sentences of them), or None.
+    FLORES order is fixed, so a cache built for N sentences also serves any
+    smaller request."""
+    path = _language_cache_path(code, config["model"], config["pooling"])
+    if not path.exists():
+        return None
+    try:
+        cached = json.loads(path.read_text())
+    except ValueError:
+        return None
+    points = cached.get("points") or []
+    n = config["n_sentences"]
+    if len(points) < n or points[0].get("tokenVectors") is None:
+        return None
+    return points[:n]
 
 
-def _load_or_build_dataset(cache_path: Path, config: dict, builder: Callable) -> dict:
-    """builder(lang_codes, n_sentences, model_name, pooling) -> dataset dict, same shape as the cache file."""
-    if cache_path.exists():
-        cached = json.loads(cache_path.read_text())
-        if _cache_matches(cached, config):
-            return cached
+def _load_or_build_dataset(config: dict, builder: Callable) -> dict:
+    """Embeds only the languages missing from the per-language cache.
+    builder(lang_codes, n_sentences, model_name, pooling) -> dataset dict."""
+    by_lang = {}
+    missing = []
+    for code in config["lang_codes"]:
+        points = _read_language_cache(code, config)
+        if points is None:
+            missing.append(code)
+        else:
+            by_lang[code] = points
 
-    built = builder(config["lang_codes"], config["n_sentences"], config["model"], config["pooling"])
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(built))
-    return built
+    if missing:
+        built = builder(missing, config["n_sentences"], config["model"], config["pooling"])
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        for code in missing:
+            points = [p for p in built["points"] if p["lang"] == code]
+            by_lang[code] = points
+            _language_cache_path(code, config["model"], config["pooling"]).write_text(
+                json.dumps({"model": config["model"], "pooling": config["pooling"], "lang": code, "points": points})
+            )
+
+    points = [p for code in config["lang_codes"] for p in by_lang[code]]
+    return {
+        "model": config["model"], "layer": "last", "pooling": config["pooling"],
+        "lang_codes": config["lang_codes"], "points": points,
+    }
 
 
 @app.post("/dataset/flores")
@@ -248,8 +267,10 @@ def load_flores_dataset(raw: dict) -> dict:
         raise HTTPException(status_code=400, detail=str(e)) from e
     print(f"Preparing FLORES-200 dataset: {config}")
     try:
-        built = _load_or_build_dataset(_flores_cache_path(config), config, embedding_pipeline.build_dataset)
+        built = _load_or_build_dataset(config, embedding_pipeline.build_dataset)
         normalized = validate_and_normalize(built)
+    except embedding_pipeline.UnknownLanguageError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logging.getLogger("uvicorn.error").exception("FLORES-200 load failed")
         raise HTTPException(status_code=500, detail=f"Could not load FLORES-200: {type(e).__name__}: {e}") from e
