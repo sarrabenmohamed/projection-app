@@ -322,6 +322,11 @@ class App {
 
     let meta, proj;
     try {
+      if (!(await this.backend.fetchDatasetInfo()).loaded) {
+        this._setLoading(false);
+        this._setStatus('No dataset loaded.');
+        return;
+      }
       [meta, proj] = await Promise.all([
         this.backend.fetchPoints(),
         this.backend.fetchProjection(method, metric, hyperparams),

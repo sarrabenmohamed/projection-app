@@ -598,3 +598,12 @@ def test_upload_endpoint_400_on_bad_file_and_keeps_dataset(client):
     assert client.post("/dataset/upload?format=nope", content="x").status_code == 400
     assert client.post("/dataset/upload?format=json", content=b"\xff\xfe").status_code == 400
     assert server.DATASET["data"] is before
+
+
+def test_dataset_info_reports_loaded_and_empty(client, monkeypatch):
+    info = client.get("/dataset/info").json()
+    assert info["loaded"] is True and info["n_points"] == len(SAMPLE_DATASET["points"])
+
+    monkeypatch.setitem(server.DATASET, "data", None)
+    res = client.get("/dataset/info")
+    assert res.status_code == 200 and res.json() == {"loaded": False}

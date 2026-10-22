@@ -279,6 +279,16 @@ def load_flores_dataset(raw: dict) -> dict:
     return {"n_points": len(normalized["points"]), "lang_codes": normalized["lang_codes"], "dim": normalized["dim"]}
 
 
+@app.get("/dataset/info")
+def dataset_info() -> dict:
+    """Never 404s, so the frontend can ask whether anything is loaded before
+    requesting points/projections."""
+    d = DATASET["data"]
+    if d is None:
+        return {"loaded": False}
+    return {"loaded": True, "n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
+
+
 def _current_dataset() -> dict:
     if DATASET["data"] is None:
         raise HTTPException(status_code=404, detail="No dataset loaded yet — load a FLORES-200 subset or upload an embeddings JSON")

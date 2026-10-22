@@ -7,6 +7,10 @@ export class BackendClient {
     this.baseUrl = baseUrl;
   }
 
+  fetchDatasetInfo() {
+    return this._request('/dataset/info');
+  }
+
   fetchPoints() {
     return this._request('/points');
   }
