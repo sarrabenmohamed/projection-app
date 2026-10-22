@@ -75,17 +75,30 @@ def embed_sentence(sent: str, tokenizer, model, pooling: str = "mean") -> tuple[
     return pooled, tvecs
 
 
+class UnknownLanguageError(ValueError):
+    pass
+
+
 def build_dataset(lang_codes: list[str], n_sentences: int, model_name: str, pooling: str = "mean") -> dict:
     """Loads FLORES-200 for each language and embeds it, returning the same
     JSON-shaped dict server.py caches to disk and loads on startup."""
+    # Load every language first so a bad code fails in seconds, not after
+    # the model download.
+    datasets = {}
+    for code in lang_codes:
+        try:
+            datasets[code] = load_dataset("facebook/flores", code, split="devtest").select(range(n_sentences))
+        except ValueError as e:
+            raise UnknownLanguageError(f'"{code}" is not a FLORES-200 language code (e.g. eng_Latn, deu_Latn)') from e
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name, output_hidden_states=True)
     model.eval()
 
     points = []
     for code in lang_codes:
-        print(f"Loading + embedding {code} ...")
-        ds = load_dataset("facebook/flores", code, split="devtest").select(range(n_sentences))
+        print(f"Embedding {code} ...")
+        ds = datasets[code]
         for pair_id, row in enumerate(ds):
             text = row["sentence"]
             vector, token_vectors = embed_sentence(text, tokenizer, model, pooling)
