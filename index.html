@@ -33,6 +33,7 @@
           <option value="cls">cls</option>
         </select>
         <button type="button" id="flores-load-button">Load FLORES-200</button>
+        <div id="flores-error" class="error-msg" role="alert" hidden></div>
       </details>
       <div id="format-help">
         <p><strong>JSONL</strong> (<code>.jsonl</code>): one point object per line (<code>id</code>, <code>lang</code>, <code>vector</code>, ...). Optional leading lines without a <code>vector</code> carry metadata such as <code>model</code> or <code>lang_families</code>.</p>
