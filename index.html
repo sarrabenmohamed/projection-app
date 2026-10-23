@@ -121,6 +121,11 @@
         <option value="lang">Language</option>
         <option value="family">Language family</option>
       </select>
+      <label><input type="checkbox" id="view3d-toggle" data-tip="Project into 3 dimensions instead of 2 and rotate the cloud by dragging."> 3D view</label>
+      <div id="view3d-options" hidden>
+        <div class="param-hint">Drag to rotate &middot; Shift+drag to pan &middot; scroll to zoom.</div>
+        <button type="button" id="view3d-reset">Reset view</button>
+      </div>
       <label><input type="checkbox" id="fisheye-toggle"> Fisheye lens (drag the disk)</label>
       <div id="fisheye-options" hidden>
         <label for="fisheye-size" class="fisheye-size-label">Lens size: <span id="fisheye-size-value">110</span> px</label>
@@ -130,16 +135,24 @@
           <option value="geometric">Style: Geometric (rational)</option>
         </select>
       </div>
+      <div class="param-hint">Select an area: right-drag (or Ctrl+drag) on the plot.</div>
     </div>
     <div id="status">Loading...</div>
 
     <div id="lang-filter-controls">
-      <label><input type="checkbox" id="family-color-toggle" checked> Color by language family</label>
-      <div id="family-legend"></div>
-      <label for="lang-search">Filter languages:</label>
-      <input type="text" id="lang-search" placeholder="Type to search...">
-      <div id="lang-suggestions"></div>
-      <div id="lang-chips"></div>
+      <label for="color-mode-select">Color points by:</label>
+      <select id="color-mode-select">
+        <option value="language">Language</option>
+        <option value="family">Language family</option>
+        <option value="custom">Chosen languages only</option>
+      </select>
+      <div id="color-legend"></div>
+      <div id="lang-picker" hidden>
+        <label for="lang-search">Languages to color:</label>
+        <input type="text" id="lang-search" placeholder="Type to search...">
+        <div id="lang-suggestions"></div>
+        <div id="lang-chips"></div>
+      </div>
     </div>
   </div>
 
@@ -185,6 +198,7 @@
 <div id="loading-overlay">
   <div class="loading-spinner"></div>
   <div id="loading-text" class="loading-text"></div>
+  <button type="button" id="loading-cancel" hidden>Cancel</button>
 </div>
 
 </body>

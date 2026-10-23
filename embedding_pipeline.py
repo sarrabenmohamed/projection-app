@@ -12,6 +12,7 @@ then accept terms at https://huggingface.co/datasets/facebook/flores
 from __future__ import annotations
 
 import os
+from typing import Callable, Optional
 
 # transformers lazily imports TensorFlow if it's installed at all, even though
 # we only use torch; on machines with a broken/incompatible TF install this
@@ -79,9 +80,18 @@ class UnknownLanguageError(ValueError):
     pass
 
 
-def build_dataset(lang_codes: list[str], n_sentences: int, model_name: str, pooling: str = "mean") -> dict:
+class EmbeddingCancelled(Exception):
+    """Raised by build_dataset when should_cancel() turns true."""
+
+
+def build_dataset(
+    lang_codes: list[str], n_sentences: int, model_name: str, pooling: str = "mean",
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> dict:
     """Loads FLORES-200 for each language and embeds it, returning the same
-    JSON-shaped dict server.py caches to disk and loads on startup."""
+    JSON-shaped dict server.py caches to disk and loads on startup.
+    should_cancel is polled before every sentence (and before the model
+    loads); a true result raises EmbeddingCancelled."""
     # Load every language first so a bad code fails in seconds, not after
     # the model download.
     datasets = {}
@@ -91,6 +101,8 @@ def build_dataset(lang_codes: list[str], n_sentences: int, model_name: str, pool
         except ValueError as e:
             raise UnknownLanguageError(f'"{code}" is not a FLORES-200 language code (e.g. eng_Latn, deu_Latn)') from e
 
+    if should_cancel and should_cancel():
+        raise EmbeddingCancelled()
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name, output_hidden_states=True)
     model.eval()
@@ -100,6 +112,8 @@ def build_dataset(lang_codes: list[str], n_sentences: int, model_name: str, pool
         print(f"Embedding {code} ...")
         ds = datasets[code]
         for pair_id, row in enumerate(ds):
+            if should_cancel and should_cancel():
+                raise EmbeddingCancelled()
             text = row["sentence"]
             vector, token_vectors = embed_sentence(text, tokenizer, model, pooling)
             points.append({

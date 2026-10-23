@@ -16,7 +16,7 @@ export class BackendClient {
   }
 
   // hyperparams is {n_neighbors, min_dist} for umap or {perplexity, learning_rate}
-  // for tsne — any key can be omitted/undefined to let the backend pick its default.
+  // for tsne, plus n_components (2 or 3) — any key can be omitted/undefined to let the backend pick its default.
   fetchProjection(method, metric, hyperparams = {}) {
     const params = new URLSearchParams({ method, metric });
     for (const [k, v] of Object.entries(hyperparams)) {
@@ -25,7 +25,7 @@ export class BackendClient {
     return this._request(`/project?${params}`);
   }
 
-  // umapParams is {n_neighbors, min_dist} — must match whatever the main
+  // umapParams is {n_neighbors, min_dist, n_components} — must match whatever the main
   // projection is currently using so the token vectors land in the same
   // fitted UMAP space (see server.py's _get_umap_reducer).
   fetchTokenProjection(id, metric, umapParams = {}) {
@@ -66,19 +66,26 @@ export class BackendClient {
   }
 
   // config is {lang_codes, n_sentences, model, pooling}; a first build can take minutes.
-  loadFlores(config) {
+  // Aborting `signal` stops waiting; cancelFlores() stops the server's work.
+  loadFlores(config, signal) {
     return this._request('/dataset/flores', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
+      signal,
     });
+  }
+
+  cancelFlores() {
+    return this._request('/dataset/flores/cancel', { method: 'POST' });
   }
 
   async _request(path, options) {
     let res;
     try {
       res = await fetch(`${this.baseUrl}${path}`, options);
-    } catch {
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
       throw new Error(`Can't reach the backend (${this.baseUrl || window.location.origin}) — start it with "make run".`);
     }
     if (!res.ok) {

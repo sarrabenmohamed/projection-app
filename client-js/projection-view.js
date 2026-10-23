@@ -23,6 +23,8 @@ const DEFAULT_FISHEYE_RADIUS = 110;
 const FISHEYE_DISTORTION = 3;
 const LENS_GRIP_RADIUS = 14;
 const LENS_RIM_GRAB = 8;
+const ROTATE_SPEED = 0.008; // radians per dragged pixel
+const DRAG_THRESHOLD = 3;   // px of movement before a press counts as a drag, not a click
 
 export class ProjectionView {
   constructor(containerId) {
@@ -38,7 +40,7 @@ export class ProjectionView {
     this._applySize();
 
     this.pointLayer = new PointLayer(() => this._draw());
-    this.axes = new ZoomableAxes(this.canvas, this.width, this.height, () => this._draw(), event => this._lensHit(event));
+    this.axes = new ZoomableAxes(this.canvas, this.width, this.height, () => this._draw(), event => this._blocksPan(event));
     this.tooltip = new Tooltip(this.el);
 
     this.quadtree = null;
@@ -49,6 +51,10 @@ export class ProjectionView {
     this._fisheyeRadius = DEFAULT_FISHEYE_RADIUS; // screen px
     this._lensCenter = null;    // {x, y} screen px within the plot area (margin excluded)
     this._lensDrag = null;
+    this._rotateDrag = null;
+    this._areaDrag = null;      // {x0, y0, x1, y1} in plot-area screen px while a box-select is being dragged
+    this._onAreaSelect = null;
+    this._quadtreeDirty = false;
     this._suppressClick = false;
     this._drawRafPending = false;
 
@@ -56,27 +62,65 @@ export class ProjectionView {
     this.canvas.addEventListener('mousemove', event => this._onCanvasMouseMove(event));
     this.canvas.addEventListener('mouseleave', () => this._onCanvasMouseLeave());
     this.canvas.addEventListener('mousedown', event => this._onLensMouseDown(event));
+    this.canvas.addEventListener('mousedown', event => this._onRotateMouseDown(event));
+    this.canvas.addEventListener('mousedown', event => this._onAreaMouseDown(event));
+    this.canvas.addEventListener('contextmenu', event => event.preventDefault()); // right-drag is the box-select
   }
 
   update(points, onClickPoint) {
     this._onClickPoint = onClickPoint;
 
-    const baseXScale = d3.scaleLinear(d3.extent(points, d => d.x), [20, this.width - 20]);
-    const baseYScale = d3.scaleLinear(d3.extent(points, d => d.y), [this.height - 20, 20]);
-    this.pointLayer.setPoints(points, baseXScale, baseYScale);
-
-    this.quadtree = d3.quadtree()
-      .x(d => baseXScale(d.x))
-      .y(d => baseYScale(d.y))
-      .addAll(this.pointLayer.points);
+    this.pointLayer.setPoints(points);
+    this._fitScales();
 
     // fires the axes' onZoom callback synchronously, which draws the first frame
     this.axes.reset();
   }
 
+  // Called with (points, event) when the user finishes a box-select.
+  setAreaSelectHandler(handler) { this._onAreaSelect = handler; }
+
+  // The base (pre-zoom) scales and the hit-test quadtree that go with them.
+  // 2D stretches the data extent over the plot area; 3D keeps a fixed
+  // equal-aspect scale, so rotating never rescales or squashes the cloud.
+  _fitScales() {
+    const layer = this.pointLayer;
+    if (layer.dims === 3) {
+      const r = layer.radius;
+      const half = Math.max(1, Math.min(this.width, this.height) / 2 - 20);
+      const cx = this.width / 2, cy = this.height / 2;
+      layer.setScales(d3.scaleLinear([-r, r], [cx - half, cx + half]), d3.scaleLinear([-r, r], [cy + half, cy - half]));
+    } else {
+      layer.setScales(
+        d3.scaleLinear(d3.extent(layer.points, d => d.x), [20, this.width - 20]),
+        d3.scaleLinear(d3.extent(layer.points, d => d.y), [this.height - 20, 20]),
+      );
+    }
+    this._rebuildQuadtree();
+  }
+
+  // Rotating moves every point, so the quadtree is rebuilt lazily, on the
+  // first hit-test after a rotation rather than on every drag frame.
+  _rebuildQuadtree() {
+    const layer = this.pointLayer;
+    this.quadtree = d3.quadtree()
+      .x(d => layer.baseXScale(d.x))
+      .y(d => layer.baseYScale(d.y))
+      .addAll(layer.points);
+    this._quadtreeDirty = false;
+  }
+
+  resetView() {
+    this.pointLayer.resetRotation();
+    this._quadtreeDirty = true;
+    this.axes.reset();
+  }
+
+  get is3D() { return this.pointLayer.dims === 3; }
+
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
-  setFamilyColorMode(enabled) { this.pointLayer.setFamilyColorMode(enabled); }
-  getFamilyLegend() { return this.pointLayer.getFamilyLegend(); }
+  setColorMode(mode) { this.pointLayer.setColorMode(mode); }
+  getColorLegend() { return this.pointLayer.getColorLegend(); }
   setPinnedPoints(pins) { this.pointLayer.setPinnedPoints(pins); }
   setShowPinnedOnly(enabled) { this.pointLayer.setShowPinnedOnly(enabled); }
   setTokenOverlays(overlaysByPin) { this.pointLayer.setTokenOverlays(overlaysByPin); }
@@ -123,16 +167,7 @@ export class ProjectionView {
     this._applySize();
     this.axes.resize(this.width, this.height);
 
-    if (this.pointLayer.points.length) {
-      const baseXScale = d3.scaleLinear(d3.extent(this.pointLayer.points, d => d.x), [20, this.width - 20]);
-      const baseYScale = d3.scaleLinear(d3.extent(this.pointLayer.points, d => d.y), [this.height - 20, 20]);
-      this.pointLayer.baseXScale = baseXScale;
-      this.pointLayer.baseYScale = baseYScale;
-      this.quadtree = d3.quadtree()
-        .x(d => baseXScale(d.x))
-        .y(d => baseYScale(d.y))
-        .addAll(this.pointLayer.points);
-    }
+    if (this.pointLayer.points.length) this._fitScales();
     if (this._lensCenter) this._lensCenter = this._clampLens(this._lensCenter.x, this._lensCenter.y);
     this._draw();
   }
@@ -141,6 +176,26 @@ export class ProjectionView {
     this.ctx.clearRect(0, 0, this.el.clientWidth, this.el.clientHeight);
     this.pointLayer.draw(this.ctx, this.margin, this.axes.transform, this._hoveredId, this._fisheyeFocus());
     if (this._lensCenter) this._drawLens();
+    if (this._areaDrag) this._drawAreaBox();
+  }
+
+  _drawAreaBox() {
+    const { x, y, w, h } = this._areaRect();
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(this.margin.left, this.margin.top);
+    ctx.fillStyle = 'rgba(26, 115, 232, 0.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.setLineDash([5, 3]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#1a73e8';
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  _areaRect() {
+    const a = this._areaDrag;
+    return { x: Math.min(a.x0, a.x1), y: Math.min(a.y0, a.y1), w: Math.abs(a.x1 - a.x0), h: Math.abs(a.y1 - a.y0) };
   }
 
   // The lens lives in screen space (so panning/zooming doesn't move the
@@ -235,6 +290,79 @@ export class ProjectionView {
     window.addEventListener('mouseup', onUp);
   }
 
+  // In 3D a plain left-drag rotates, so panning moves to shift+drag.
+  _blocksPan(event) {
+    return this._lensHit(event) || (this.is3D && !event.shiftKey);
+  }
+
+  // Counts as a click-suppressing drag once the pointer moved far enough.
+  _endDragGesture(moved) {
+    if (!moved) return;
+    this._suppressClick = true; // the click that follows the release shouldn't select a point
+    setTimeout(() => { this._suppressClick = false; }, 0);
+  }
+
+  _onRotateMouseDown(event) {
+    if (!this.is3D || event.button !== 0 || event.ctrlKey || event.shiftKey || this._lensHit(event)) return;
+    event.preventDefault();
+    this.tooltip.hide();
+    this._hoveredId = null;
+    this._rotateDrag = { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false };
+    this.canvas.style.cursor = 'grabbing';
+
+    const onMove = e => {
+      const drag = this._rotateDrag;
+      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_THRESHOLD) drag.moved = true;
+      this.pointLayer.rotateBy((e.clientX - drag.x) * ROTATE_SPEED, (e.clientY - drag.y) * ROTATE_SPEED);
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      this._quadtreeDirty = true;
+      this._requestDraw();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      this._endDragGesture(this._rotateDrag.moved);
+      this._rotateDrag = null;
+      this.canvas.style.cursor = 'grab';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  // Right-drag (or ctrl+drag, for trackpads) draws a box; every selectable
+  // point inside it is handed to the area-select handler on release.
+  _onAreaMouseDown(event) {
+    const isAreaGesture = event.button === 2 || (event.button === 0 && event.ctrlKey);
+    if (!isAreaGesture || !this._onAreaSelect) return;
+    event.preventDefault();
+    this.tooltip.hide();
+    const start = this._plotPosition(event);
+    this._areaDrag = { x0: start.x, y0: start.y, x1: start.x, y1: start.y };
+
+    const onMove = e => {
+      const q = this._clampLens(this._plotPosition(e).x, this._plotPosition(e).y);
+      this._areaDrag.x1 = q.x;
+      this._areaDrag.y1 = q.y;
+      this._requestDraw();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const { x, y, w, h } = this._areaRect();
+      this._areaDrag = null;
+      this._endDragGesture(true);
+      this._draw();
+      if (w < DRAG_THRESHOLD && h < DRAG_THRESHOLD) return;
+      const [lx0, ly0] = this.axes.transform.invert([x, y]);
+      const [lx1, ly1] = this.axes.transform.invert([x + w, y + h]);
+      const inside = this.pointLayer.pointsInRect(lx0, ly0, lx1, ly1);
+      if (inside.length) this._onAreaSelect(inside);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
   // Coalesces redraws to at most one per animation frame. mousemove can
   // fire far more often than the browser paints, and with the fisheye
   // lens active every point's position is recomputed on every redraw
@@ -277,6 +405,7 @@ export class ProjectionView {
     const [x, y] = this._screenToLocal(event);
     const radius = 8 / this.axes.transform.k;
     if (this.pointLayer.fisheyeActive) return this.pointLayer.pointAtDisplayed(x, y, radius);
+    if (this._quadtreeDirty) this._rebuildQuadtree();
     const found = this.quadtree.find(x, y, radius);
     if (found && this.pointLayer.isIsolatedOut(found)) return undefined;
     return found;
@@ -303,7 +432,7 @@ export class ProjectionView {
   }
 
   _onCanvasMouseMove(event) {
-    if (this._lensDrag) return;
+    if (this._lensDrag || this._rotateDrag || this._areaDrag) return;
     if (this._lensHit(event)) {
       this._hoveredId = null;
       this.tooltip.hide();
@@ -331,13 +460,13 @@ export class ProjectionView {
       this.canvas.style.cursor = 'pointer';
     } else {
       this.tooltip.hide();
-      this.canvas.style.cursor = 'default';
+      this.canvas.style.cursor = this.is3D ? 'grab' : 'default';
     }
   }
 
   _onCanvasMouseLeave() {
     this.tooltip.hide();
-    if (!this._lensDrag) this.canvas.style.cursor = 'default';
+    if (!this._lensDrag && !this._rotateDrag) this.canvas.style.cursor = 'default';
     if (this._hoveredId !== null) {
       this._hoveredId = null;
       this._draw();
