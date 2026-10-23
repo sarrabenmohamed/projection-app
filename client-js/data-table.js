@@ -1,7 +1,6 @@
 // Data table: sentence rows always, token rows only for whichever point
-// currently has its tokens shown. A pin checkbox is each sentence row's
-// only pin control (clicking elsewhere on the row does nothing); a pinned
-// row reveals its Actions dropdown. App drives all of this through the
+// currently has its tokens shown. Clicking a sentence row (or its checkbox)
+// pins it; a pinned row reveals its Actions dropdown. App drives all of this through the
 // same selection state it drives the canvas with, so table and canvas
 // pinning always agree.
 
@@ -17,9 +16,9 @@ const EXACT_MATCH_FILTER_KEYS = new Set(['id', 'pairId']);
 // matched case-insensitively.
 const COLUMN_ALIASES = { id: 'id', lang: 'lang', language: 'lang', text: 'text', pairid: 'pairId', pair_id: 'pairId' };
 
-// A bare query (no "key=") searches lang+text, same as the original search
-// box; "key=value" targets just that column instead.
-function parseSearchQuery(raw) {
+// "key=value" targets one column explicitly. Otherwise the query goes to the
+// column picked in the field dropdown, or lang+text when that's "All".
+function parseSearchQuery(raw, field = '') {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const eq = trimmed.indexOf('=');
@@ -28,7 +27,7 @@ function parseSearchQuery(raw) {
     const value = trimmed.slice(eq + 1).trim();
     if (key && value) return { key, value };
   }
-  return { key: null, value: trimmed };
+  return { key: field || null, value: trimmed };
 }
 
 // Sentence text, language, and token strings all come from whatever
@@ -62,6 +61,7 @@ export class DataTable {
     // to the canvas: this is just a quick local view narrowing, not a
     // selection, so it shouldn't outlive the table.
     this._search = '';
+    this._searchField = '';
     this._sortKey = null;
     this._sortAsc = true;
     this._page = 0;
@@ -69,7 +69,14 @@ export class DataTable {
 
     this.container.innerHTML = `
       <div class="dt-top">
-        <input type="text" class="dt-search" placeholder="Search, or id=/lang=/text=/pairid=...">
+        <select class="dt-field" title="Which column the search box looks in">
+          <option value="">All (language + text)</option>
+          <option value="id">ID</option>
+          <option value="lang">Language</option>
+          <option value="text">Text</option>
+          <option value="pairId">PairId</option>
+        </select>
+        <input type="text" class="dt-search" placeholder="Search — or type e.g. pairid=3, lang=de">
         <label class="dt-show-selected-label"><input type="checkbox" class="dt-show-selected"> Show selected</label>
         <button type="button" class="dt-select-all" title="Pin every row matching the current search, across all pages">Select all</button>
         <button type="button" class="dt-clear-selection">Clear selection</button>
@@ -109,6 +116,11 @@ export class DataTable {
       this._page = 0;
       this._render();
     });
+    this.container.querySelector('.dt-field').addEventListener('change', e => {
+      this._searchField = e.target.value;
+      this._page = 0;
+      this._render();
+    });
     this.container.querySelector('.dt-show-selected').addEventListener('change', e => {
       this._showSelectedOnly = e.target.checked;
       this._page = 0;
@@ -144,6 +156,8 @@ export class DataTable {
     this._highlightedRowId = null;
     this._search = '';
     this._searchInput.value = '';
+    this._searchField = '';
+    this.container.querySelector('.dt-field').value = '';
     this._sortKey = null;
     this._page = 0;
     this._showSelectedOnly = false;
@@ -213,7 +227,7 @@ export class DataTable {
 
   _visibleRows() {
     let rows;
-    const parsed = parseSearchQuery(this._search);
+    const parsed = parseSearchQuery(this._search, this._searchField);
     if (!parsed) {
       rows = this.points;
     } else if (parsed.key) {
@@ -258,6 +272,11 @@ export class DataTable {
     this._pageEl.textContent = `Page ${this._page + 1} / ${totalPages}`;
 
     this.tbody.innerHTML = '';
+    if (total === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="8" class="dt-empty">No rows match. Pick a column in the dropdown on the left, or type <code>pairid=3</code> / <code>lang=de</code>.</td>';
+      this.tbody.appendChild(tr);
+    }
     pageRows.forEach(p => {
       this.tbody.appendChild(this._renderSentenceRow(p));
       const pin = this._pinFor(p.id);
