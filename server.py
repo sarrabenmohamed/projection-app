@@ -55,6 +55,7 @@ import embedding_pipeline
 from dataset_formats import parse_dataset_text
 
 DATA_DIR = Path(__file__).parent / "data"
+Metric = Literal["euclidean", "cosine", "manhattan"]
 # FLORES-200 devtest has 1012 sentences per language and 204 language/script variants.
 FLORES_DEVTEST_SIZE = 1012
 MAX_FLORES_LANGUAGES = 204
@@ -373,7 +374,7 @@ def _get_umap_reducer(d: dict, metric: str, n_neighbors: int, min_dist: float) -
 @app.get("/project")
 def project(
     method: Literal["umap", "tsne"] = "umap",
-    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
+    metric: Metric = "euclidean",
     n_neighbors: Optional[int] = Query(default=None, ge=1, le=200),
     min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
     perplexity: Optional[float] = Query(default=None, gt=0, le=500),
@@ -410,7 +411,7 @@ def project(
 def neighbors(
     point_id: str,
     k: int = Query(default=5, ge=1, le=100),
-    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
+    metric: Metric = "euclidean",
 ) -> dict:
     """Nearest neighbors by distance in the full embedding space (not the 2D
     projection) — independent of whatever method/metric the plot is using."""
@@ -439,7 +440,7 @@ def neighbors(
 @app.get("/project/tokens/{point_id}")
 def project_tokens(
     point_id: str,
-    metric: Literal["cosine", "euclidean", "manhattan", "chebyshev", "correlation", "braycurtis", "canberra"] = "euclidean",
+    metric: Metric = "euclidean",
     n_neighbors: Optional[int] = Query(default=None, ge=1, le=200),
     min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
 ) -> dict:

@@ -238,3 +238,5 @@ body.resizing-y { cursor: row-resize; }
 
 #fisheye-size { width: 100%; margin: 2px 0 6px; }
 .fisheye-size-label { font-size: 0.8em; color: #555; }
+
+.param-hint { margin: 4px 0 8px; font-size: 0.75em; color: #777; line-height: 1.35; }

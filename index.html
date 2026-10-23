@@ -82,15 +82,12 @@
         </ul>
       </div>
       <label for="metric-select">Distance metric:</label>
-      <select id="metric-select" data-tip="How distance between embeddings is measured before projecting. Cosine ignores vector length and is the usual choice for text embeddings; euclidean also compares magnitude.">
-        <option value="euclidean">euclidean</option>
-        <option value="cosine">cosine</option>
-        <option value="manhattan">manhattan</option>
-        <option value="chebyshev">chebyshev</option>
-        <option value="correlation">correlation</option>
-        <option value="braycurtis">braycurtis</option>
-        <option value="canberra">canberra</option>
+      <select id="metric-select" data-tip="How distance between embeddings is measured before projecting.">
+        <option value="euclidean" title="Straight-line distance. Sensitive to vector length, so long and short sentence vectors look further apart.">euclidean</option>
+        <option value="cosine" title="Angle between vectors; ignores length. The usual choice for text embeddings.">cosine</option>
+        <option value="manhattan" title="Sum of per-dimension differences. Less dominated by a few large dimensions than euclidean.">manhattan</option>
       </select>
+      <div id="metric-description" class="param-hint"></div>
       <details id="projection-params">
         <summary data-tip="Hyperparameters of the selected projection method">Method parameters</summary>
         <div id="umap-params" class="param-row">
