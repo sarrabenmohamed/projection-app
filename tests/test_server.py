@@ -277,6 +277,45 @@ def test_project_tokens_success(client):
     assert all(isinstance(t["x"], float) and isinstance(t["y"], float) for t in body["tokens"])
 
 
+def test_project_umap_3d_returns_z_and_refits_per_dimensionality(client, monkeypatch):
+    fit_calls = []
+    orig_fit = server.umap.UMAP.fit
+
+    def spy_fit(self, X, *a, **kw):
+        fit_calls.append(1)
+        return orig_fit(self, X, *a, **kw)
+
+    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+
+    flat = client.get("/project?method=umap").json()
+    assert "z" not in flat["points"][0]
+
+    res = client.get("/project?method=umap&n_components=3")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["n_components"] == 3
+    assert all(isinstance(p["z"], float) for p in body["points"])
+    assert len(fit_calls) == 2  # 2D and 3D are different fits
+
+
+def test_project_tsne_3d_returns_z(client):
+    res = client.get("/project?method=tsne&n_components=3")
+    assert res.status_code == 200
+    assert "z" in res.json()["points"][0]
+
+
+def test_project_rejects_unsupported_n_components(client):
+    assert client.get("/project?n_components=4").status_code == 422
+    assert client.get("/project?n_components=1").status_code == 422
+
+
+def test_project_tokens_3d_returns_z(client):
+    client.get("/project?method=umap&n_components=3")
+    res = client.get("/project/tokens/en-1?n_components=3")
+    assert res.status_code == 200
+    assert all("z" in t for t in res.json()["tokens"])
+
+
 def test_project_tokens_404_for_unknown_id(client):
     res = client.get("/project/tokens/does-not-exist")
     assert res.status_code == 404
@@ -496,7 +535,7 @@ def test_flores_config_rejects_bad_input(raw):
 def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
     calls = []
 
-    def fake_build_dataset(lang_codes, n_sentences, model_name, pooling):
+    def fake_build_dataset(lang_codes, n_sentences, model_name, pooling, **kwargs):
         calls.append((lang_codes, n_sentences, model_name, pooling))
         return {
             "model": model_name, "layer": "last", "pooling": pooling, "lang_codes": lang_codes,
@@ -527,6 +566,39 @@ def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
     res = client.post("/dataset/flores", json={**body, "lang_codes": ["eng_Latn", "deu_Latn", "fra_Latn"]})
     assert res.json()["n_points"] == 9
     assert calls[1][0] == ["fra_Latn"]  # only the new language is embedded
+
+
+def test_flores_cancel_stops_the_build_and_keeps_the_dataset(client, tmp_path, monkeypatch):
+    def build_until_cancelled(lang_codes, n_sentences, model_name, pooling, should_cancel=None):
+        assert client.post("/dataset/flores/cancel").json() == {"cancelled": True}
+        assert should_cancel()
+        raise server.embedding_pipeline.EmbeddingCancelled()
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build_until_cancelled)
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    before = server.DATASET["data"]
+    res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
+    assert res.status_code == 409
+    assert "cancelled" in res.json()["detail"]
+    assert server.DATASET["data"] is before
+    assert not list(tmp_path.glob("flores_lang_*.json"))  # nothing half-built is cached
+
+
+def test_flores_load_after_a_cancel_is_not_affected_by_it(client, tmp_path, monkeypatch):
+    def build(lang_codes, n_sentences, model_name, pooling, should_cancel=None):
+        assert not should_cancel()
+        return {
+            "model": model_name, "layer": "last", "pooling": pooling, "lang_codes": lang_codes,
+            "points": [
+                {"id": f"{c}-{i}", "lang": c, "pairId": i, "vector": [float(i), 1.0], "tokenVectors": [{"token": "t", "vector": [0.0, 1.0]}]}
+                for c in lang_codes for i in range(n_sentences)
+            ],
+        }
+
+    monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build)
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    client.post("/dataset/flores/cancel")  # nothing running
+    assert client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3}).status_code == 200
 
 
 def test_flores_endpoint_400_on_unknown_language(client, tmp_path, monkeypatch):

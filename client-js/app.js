@@ -79,13 +79,19 @@ class App {
       });
     document.getElementById('fisheye-style-select')
       .addEventListener('change', e => this.view.setFisheyeStyle(e.target.value));
-    document.getElementById('family-color-toggle')
-      .addEventListener('change', e => {
-        this.view.setFamilyColorMode(e.target.checked);
-        document.getElementById('lang-search').disabled = e.target.checked;
-        this._renderFamilyLegend();
-      });
-    document.getElementById('lang-search').disabled = document.getElementById('family-color-toggle').checked;
+    document.getElementById('color-mode-select')
+      .addEventListener('change', e => this._setColorMode(e.target.value));
+    this._setColorMode(document.getElementById('color-mode-select').value);
+    document.getElementById('view3d-toggle')
+      .addEventListener('change', e => this._setView3D(e.target.checked));
+    document.getElementById('view3d-reset')
+      .addEventListener('click', () => this.view.resetView());
+    this.view.setAreaSelectHandler(points => this.selectPoints(points));
+    document.getElementById('loading-cancel')
+      .addEventListener('click', () => this._cancelHandler?.());
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') this._cancelHandler?.();
+    });
     document.getElementById('format-help-toggle')
       .addEventListener('click', () => this._toggleFormatHelp());
     document.getElementById('projection-caveats-toggle')
@@ -138,6 +144,25 @@ class App {
       perplexity: document.getElementById('tsne-perplexity').value,
       learning_rate: document.getElementById('tsne-learning-rate').value,
     };
+  }
+
+  // Language/family color every point; "custom" only colors the languages
+  // picked in the language filter, so the picker is only shown for it.
+  _setColorMode(mode) {
+    this.view.setColorMode(mode);
+    document.getElementById('lang-picker').hidden = mode !== 'custom';
+    this._renderColorLegend();
+  }
+
+  _is3D() {
+    return document.getElementById('view3d-toggle').checked;
+  }
+
+  // Switching dimensionality re-projects the loaded dataset (keeping the
+  // selection and colours), since 2D and 3D are separate fits.
+  _setView3D(enabled) {
+    document.getElementById('view3d-options').hidden = !enabled;
+    this._refresh({ keepState: true });
   }
 
   // The lens size/style controls only matter while the lens is on.
@@ -227,9 +252,12 @@ class App {
   // Shows/hides the full-screen loading overlay used around every backend
   // call — a visible spinner instead of just the (still-updated) status
   // text, since a UMAP/t-SNE refit or a token projection can take a while.
-  _setLoading(isLoading, message) {
+  // onCancel, when given, shows a Cancel button (and arms Escape) that calls it.
+  _setLoading(isLoading, message, onCancel = null) {
     document.getElementById('loading-overlay').classList.toggle('visible', isLoading);
     if (isLoading) document.getElementById('loading-text').textContent = message;
+    this._cancelHandler = isLoading ? onCancel : null;
+    document.getElementById('loading-cancel').hidden = !this._cancelHandler;
   }
 
   _onFileSelected(file) {
@@ -277,12 +305,23 @@ class App {
     const errorBox = document.getElementById('flores-error');
     errorBox.hidden = true;
     button.disabled = true;
-    this._setLoading(true, `Embedding ${lang_codes.length} languages × ${config.n_sentences} sentences (first run can take minutes)...`);
+    // Aborting the request frees the UI at once; the backend call stops the
+    // embedding job itself at its next sentence.
+    const controller = new AbortController();
+    const cancel = () => {
+      controller.abort();
+      this.backend.cancelFlores().catch(() => {});
+    };
+    this._setLoading(true, `Embedding ${lang_codes.length} languages × ${config.n_sentences} sentences (first run can take minutes)...`, cancel);
     try {
-      await this.backend.loadFlores(config);
+      await this.backend.loadFlores(config, controller.signal);
     } catch (err) {
       this._setLoading(false);
       button.disabled = false;
+      if (err.name === 'AbortError') {
+        this._setStatus('FLORES-200 load cancelled.');
+        return;
+      }
       errorBox.textContent = err.message;
       errorBox.hidden = false;
       this._setStatus('FLORES-200 load failed.', true);
@@ -300,7 +339,7 @@ class App {
   async _refresh({ keepState = false } = {}) {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
-    const hyperparams = method === 'umap' ? this._umapParams() : this._tsneParams();
+    const hyperparams = { ...(method === 'umap' ? this._umapParams() : this._tsneParams()), n_components: this._is3D() ? 3 : 2 };
     this._setStatus(`Running ${method} (${metric})...`);
     this._setLoading(true, `Running ${method} (${metric})...`);
 
@@ -359,12 +398,12 @@ class App {
         hasTokens: p.hasTokens, tokenTexts: p.tokenTexts,
         // no pairId at all -> each point is its own group, so it isolates alone
         groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
-        x: c.x, y: c.y,
+        x: c.x, y: c.y, z: c.z,
       };
     });
 
     document.getElementById('status').textContent =
-      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}`;
+      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}`;
 
     // The backend clamps out-of-range hyperparams (e.g. n_neighbors/perplexity
     // past the dataset's point count) — reflect whatever it actually used back
@@ -391,24 +430,23 @@ class App {
       this.table.setPoints(this.points);
       this.view.update(this.points, d => this.onCanvasClickPoint(d));
     }
-    this._renderFamilyLegend();
+    this._renderColorLegend();
   }
 
-  // Rebuilds the sidebar's family-color legend from whatever families are
-  // actually present in the current dataset — empty (and hidden) whenever
-  // family mode is off, since the swatches would be meaningless then.
-  _renderFamilyLegend() {
-    const el = document.getElementById('family-legend');
+  // Rebuilds the sidebar's color legend from whatever languages/families are
+  // actually present in the current dataset — empty in "custom" mode, where
+  // the language chips are the key.
+  _renderColorLegend() {
+    const el = document.getElementById('color-legend');
     el.innerHTML = '';
-    if (!document.getElementById('family-color-toggle').checked) return;
-    for (const { family, color } of this.view.getFamilyLegend()) {
+    for (const { label, color } of this.view.getColorLegend()) {
       const item = document.createElement('span');
-      item.className = 'family-legend-item';
+      item.className = 'legend-item';
       const swatch = document.createElement('span');
-      swatch.className = 'family-legend-swatch';
+      swatch.className = 'legend-swatch';
       swatch.style.background = color;
       item.appendChild(swatch);
-      item.appendChild(document.createTextNode(family));
+      item.appendChild(document.createTextNode(label));
       el.appendChild(item);
     }
   }
@@ -590,7 +628,7 @@ class App {
     this._setLoading(true, 'Computing token projection...');
     let proj;
     try {
-      proj = await this.backend.fetchTokenProjection(point.id, metric, this._umapParams());
+      proj = await this.backend.fetchTokenProjection(point.id, metric, { ...this._umapParams(), n_components: this._is3D() ? 3 : 2 });
     } catch (err) {
       this._setLoading(false);
       this._setStatus(err.message, true);
@@ -602,7 +640,7 @@ class App {
     if (!liveDetail) return; // unpinned while the request was in flight
     liveDetail.tokens = true;
     liveDetail.tokenPoints = proj.tokens.map((t, i) => ({
-      id: `${point.id}::${i}`, lang: point.lang, family: point.family, text: t.token, x: t.x, y: t.y,
+      id: `${point.id}::${i}`, lang: point.lang, family: point.family, text: t.token, x: t.x, y: t.y, z: t.z,
     }));
     this._syncPins();
   }

@@ -7,8 +7,9 @@ Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
     POST /dataset/reset           reload the default FLORES-200 dataset, discarding whatever's loaded.
     GET  /points                  point metadata only, no vectors (includes each point's language family).
-    GET  /project                 2D coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
-    GET  /project/tokens/{id}     2D coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist= must match).
+    POST /dataset/flores          embed (or load from cache) a FLORES-200 subset; POST /dataset/flores/cancel stops it.
+    GET  /project                 2D (or 3D, ?n_components=3) coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
+    GET  /project/tokens/{id}     coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist=/n_components= must match).
     GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
     POST /stats                   aggregate cosine/alignment statistics for a set of selected point ids.
 """
@@ -22,6 +23,7 @@ import logging
 import math
 import re
 import sys
+import threading
 import types
 from functools import lru_cache
 from pathlib import Path
@@ -120,7 +122,12 @@ app.add_middleware(
 )
 
 DATASET: dict = {"data": None, "generation": 0}
-_REDUCER_CACHE: dict = {"generation": -1, "metric": None, "n_neighbors": None, "min_dist": None, "reducer": None}
+_REDUCER_CACHE: dict = {
+    "generation": -1, "metric": None, "n_neighbors": None, "min_dist": None, "n_components": None, "reducer": None,
+}
+# Set by POST /dataset/flores/cancel to stop the running FLORES embedding job
+# at its next sentence; every new load replaces (and first sets) the old one.
+_FLORES_CANCEL: dict = {"event": threading.Event()}
 UMAP_N_NEIGHBORS_DEFAULT = 15
 UMAP_MIN_DIST_DEFAULT = 0.1
 TSNE_PERPLEXITY_DEFAULT = 30
@@ -267,9 +274,19 @@ def load_flores_dataset(raw: dict) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     print(f"Preparing FLORES-200 dataset: {config}")
+    _FLORES_CANCEL["event"].set()  # a newer load supersedes one still running
+    cancel = _FLORES_CANCEL["event"] = threading.Event()
+
+    def builder(*args):
+        return embedding_pipeline.build_dataset(*args, should_cancel=cancel.is_set)
+
     try:
-        built = _load_or_build_dataset(config, embedding_pipeline.build_dataset)
+        built = _load_or_build_dataset(config, builder)
+        if cancel.is_set():
+            raise embedding_pipeline.EmbeddingCancelled()
         normalized = validate_and_normalize(built)
+    except embedding_pipeline.EmbeddingCancelled as e:
+        raise HTTPException(status_code=409, detail="FLORES-200 load cancelled.") from e
     except embedding_pipeline.UnknownLanguageError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -278,6 +295,14 @@ def load_flores_dataset(raw: dict) -> dict:
     DATASET["data"] = normalized
     DATASET["generation"] += 1
     return {"n_points": len(normalized["points"]), "lang_codes": normalized["lang_codes"], "dim": normalized["dim"]}
+
+
+@app.post("/dataset/flores/cancel")
+def cancel_flores_load() -> dict:
+    """Asks the running FLORES embedding job (if any) to stop; the current
+    dataset is left untouched. Harmless when nothing is running."""
+    _FLORES_CANCEL["event"].set()
+    return {"cancelled": True}
 
 
 @app.get("/dataset/info")
@@ -344,31 +369,40 @@ def get_points() -> dict:
     }
 
 
-def _fit_umap(vectors: np.ndarray, metric: str, n_neighbors: int, min_dist: float) -> umap.UMAP:
+def _fit_umap(vectors: np.ndarray, metric: str, n_neighbors: int, min_dist: float, n_components: int = 2) -> umap.UMAP:
     n = len(vectors)
     n_neighbors = max(1, min(n_neighbors, n - 1))
-    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=min_dist, random_state=42, metric=metric)
+    reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors, min_dist=min_dist, random_state=42, metric=metric)
     reducer.fit(vectors)
     return reducer
 
 
-def _get_umap_reducer(d: dict, metric: str, n_neighbors: int, min_dist: float) -> umap.UMAP:
-    """Fits once per (dataset "generation", metric, n_neighbors, min_dist) and
+def _get_umap_reducer(d: dict, metric: str, n_neighbors: int, min_dist: float, n_components: int = 2) -> umap.UMAP:
+    """Fits once per (dataset "generation", metric, n_neighbors, min_dist, n_components) and
     reuses the same reducer after that — both so repeated /project?method=umap
     calls with the same params skip refitting, and so /project/tokens/{id} can
     .transform() token vectors into the exact same space the sentence points
     were fit into for that combination (callers must pass the same metric/
     n_neighbors/min_dist the main projection is currently using)."""
-    cache_key = (DATASET["generation"], metric, n_neighbors, min_dist)
-    current_key = (_REDUCER_CACHE["generation"], _REDUCER_CACHE["metric"], _REDUCER_CACHE["n_neighbors"], _REDUCER_CACHE["min_dist"])
+    cache_key = (DATASET["generation"], metric, n_neighbors, min_dist, n_components)
+    current_key = (
+        _REDUCER_CACHE["generation"], _REDUCER_CACHE["metric"], _REDUCER_CACHE["n_neighbors"],
+        _REDUCER_CACHE["min_dist"], _REDUCER_CACHE["n_components"],
+    )
     if cache_key != current_key:
         vectors = np.array([p["vector"] for p in d["points"]], dtype=np.float32)
-        _REDUCER_CACHE["reducer"] = _fit_umap(vectors, metric, n_neighbors, min_dist)
+        _REDUCER_CACHE["reducer"] = _fit_umap(vectors, metric, n_neighbors, min_dist, n_components)
         _REDUCER_CACHE["generation"] = DATASET["generation"]
         _REDUCER_CACHE["metric"] = metric
         _REDUCER_CACHE["n_neighbors"] = n_neighbors
         _REDUCER_CACHE["min_dist"] = min_dist
+        _REDUCER_CACHE["n_components"] = n_components
     return _REDUCER_CACHE["reducer"]
+
+
+def _coords_dict(row) -> dict:
+    """x, y and (for a 3D projection) z of one projected row."""
+    return {axis: float(value) for axis, value in zip("xyz", row)}
 
 
 @app.get("/project")
@@ -379,6 +413,7 @@ def project(
     min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
     perplexity: Optional[float] = Query(default=None, gt=0, le=500),
     learning_rate: Optional[float] = Query(default=None, gt=0),
+    n_components: int = Query(default=2, ge=2, le=3),
 ) -> dict:
     d = _current_dataset()
     points = d["points"]
@@ -389,21 +424,22 @@ def project(
     if method == "umap":
         nn = min(n_neighbors or UMAP_N_NEIGHBORS_DEFAULT, n - 1)
         md = UMAP_MIN_DIST_DEFAULT if min_dist is None else min_dist
-        reducer = _get_umap_reducer(d, metric, nn, md)
+        reducer = _get_umap_reducer(d, metric, nn, md, n_components)
         coords = reducer.embedding_
         params = {"n_neighbors": nn, "min_dist": md}
     else:
         vectors = np.array([p["vector"] for p in points], dtype=np.float32)
         perp = max(1, min(perplexity or TSNE_PERPLEXITY_DEFAULT, n - 1))
         lr = TSNE_LEARNING_RATE_DEFAULT if learning_rate is None else learning_rate
-        reducer = TSNE(n_components=2, perplexity=perp, learning_rate=lr, random_state=42, init="pca", metric=metric)
+        reducer = TSNE(n_components=n_components, perplexity=perp, learning_rate=lr, random_state=42, init="pca", metric=metric)
         coords = reducer.fit_transform(vectors)
         params = {"perplexity": perp, "learning_rate": lr}
 
     return {
         "method": method,
         "params": params,
-        "points": [{"id": p["id"], "x": float(coords[i][0]), "y": float(coords[i][1])} for i, p in enumerate(points)],
+        "n_components": n_components,
+        "points": [{"id": p["id"], **_coords_dict(coords[i])} for i, p in enumerate(points)],
     }
 
 
@@ -443,6 +479,7 @@ def project_tokens(
     metric: Metric = "euclidean",
     n_neighbors: Optional[int] = Query(default=None, ge=1, le=200),
     min_dist: Optional[float] = Query(default=None, ge=0.0, le=1.0),
+    n_components: int = Query(default=2, ge=2, le=3),
 ) -> dict:
     d = _current_dataset()
     point = next((p for p in d["points"] if str(p["id"]) == point_id), None)
@@ -457,14 +494,14 @@ def project_tokens(
 
     nn = min(n_neighbors or UMAP_N_NEIGHBORS_DEFAULT, len(d["points"]) - 1)
     md = UMAP_MIN_DIST_DEFAULT if min_dist is None else min_dist
-    reducer = _get_umap_reducer(d, metric, nn, md)
+    reducer = _get_umap_reducer(d, metric, nn, md, n_components)
     vectors = np.array([t["vector"] for t in token_vectors], dtype=np.float32)
     coords = reducer.transform(vectors)
 
     return {
         "id": point["id"],
         "tokens": [
-            {"token": t["token"], "x": float(coords[i][0]), "y": float(coords[i][1])}
+            {"token": t["token"], **_coords_dict(coords[i])}
             for i, t in enumerate(token_vectors)
         ],
     }

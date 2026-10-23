@@ -2,17 +2,22 @@
 // onto a given canvas context. Hides the whole d3.timer-driven opacity
 // animation behind setLangFilter/setShowPinnedOnly.
 //
-// Two coloring modes, mutually exclusive (see setFamilyColorMode):
-// - Family mode (default): every point is colored by its language's
-//   linguistic family — always on, no filtering. `family` is a field the
-//   backend already attaches to every point (server.py's family_of()),
-//   not something this class computes.
-// - Language-filter mode: the pre-existing behavior. Every point is
-//   neutral gray by default; only languages explicitly selected via the
-//   language filter get a real color, and everything else dims to
-//   context. Filter-driven rather than per-language-always-on because
-//   past a handful of languages, giving every one its own hue stops
-//   being readable (colors repeat, legends become unusable).
+// Three coloring modes, mutually exclusive (see setColorMode):
+// - 'language' (default): every language gets its own hue, always on.
+//   Past a couple of dozen languages the palette repeats; the legend and
+//   hover labels still say which is which.
+// - 'family': every point is colored by its language's linguistic family.
+//   `family` is a field the backend already attaches to every point
+//   (server.py's family_of()), not something this class computes.
+// - 'custom': the language-filter behavior. Every point is neutral gray
+//   by default; only languages explicitly selected via the language filter
+//   get a real color, and everything else dims to context.
+//
+// Points are either 2D ({x, y}) or 3D ({x, y, z}). A 3D set is kept as raw
+// coordinates in `p3` and rotated (rotateBy) into the same screen-plane
+// `x`/`y` the 2D pipeline already uses for scales, fisheye and hit-testing,
+// plus a `depth` in [-1, 1] (1 = nearest) that drives size, opacity and draw
+// order.
 //
 // Pinned points get a colored ring; `pins` is the full current list every
 // time (not incremental), computed by App from its selection set — so a
@@ -25,6 +30,12 @@ const ISOLATED_OUT_OPACITY = 0.3;
 // that gray reads as "dimmed/background" (see NEUTRAL_COLOR above), so a
 // family that landed on it was indistinguishable from an isolated-out point.
 const FAMILY_COLORS = [...d3.schemeTableau10.slice(0, 9), '#17becf'];
+// One hue per language: the family palette, then Paired and Dark2 for variety.
+const LANG_COLORS = [...FAMILY_COLORS, ...d3.schemePaired, ...d3.schemeDark2];
+const DEPTH_SIZE_RANGE = 0.35;  // 3D: nearest points drawn up to 35% bigger, farthest 35% smaller
+const DEPTH_FADE = 0.45;        // 3D: farthest points lose up to 45% opacity
+const DEFAULT_YAW = 0.6;
+const DEFAULT_PITCH = 0.35;
 const POINT_RADIUS = 5; // local-unit render radius before the 1/transform.k scale-compensation
 const FISHEYE_RELAX_ITERATIONS = 4;
 
@@ -88,12 +99,20 @@ export class PointLayer {
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
     this._pinsById = new Map();
-    this._familyModeEnabled = true; // a view preference, not per-dataset — setPoints() below doesn't reset it
+    this._colorMode = 'language'; // a view preference, not per-dataset — setPoints() below doesn't reset it
     this._familyColorScale = null;
+    this._languageColorScale = null;
     this._showPinnedOnly = false;
+    this.dims = 2;
+    this._yaw = DEFAULT_YAW;     // view preferences too: a reprojection keeps the rotation
+    this._pitch = DEFAULT_PITCH;
+    this._center = [0, 0, 0];
+    this.radius = 1;             // 3D: farthest distance from _center, sets the screen scale
   }
 
-  setPoints(points, baseXScale, baseYScale) {
+  // Scales are set separately because a 3D set's screen scale depends on the
+  // radius that setPoints() computes.
+  setPoints(points) {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
@@ -103,25 +122,86 @@ export class PointLayer {
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
     this._familyColorScale = d3.scaleOrdinal(families, FAMILY_COLORS);
+    const langs = Array.from(new Set(this.points.map(p => p.lang))).sort();
+    this._languageColorScale = d3.scaleOrdinal(langs, LANG_COLORS);
+
+    this.dims = this.points.length && this.points[0].z !== undefined ? 3 : 2;
+    if (this.dims === 3) {
+      for (const d of this.points) d.p3 = [d.x, d.y, d.z];
+      this._fitSphere();
+      this._applyRotation();
+    }
+  }
+
+  setScales(baseXScale, baseYScale) {
     this.baseXScale = baseXScale;
     this.baseYScale = baseYScale;
   }
 
-  // Family mode and the language filter are mutually exclusive views of
-  // color — switching modes re-triggers whatever opacity target is
-  // currently active so the fade animates consistently with every other
-  // opacity change.
-  setFamilyColorMode(enabled) {
-    this._familyModeEnabled = enabled;
+  // The color modes are mutually exclusive views of color — switching
+  // re-triggers whatever opacity target is currently active so the fade
+  // animates consistently with every other opacity change.
+  setColorMode(mode) {
+    this._colorMode = mode;
     this._animateTo(d => this._opacityTarget(d));
   }
 
-  // The family -> color mapping actually in use for the current dataset
-  // (only the families present, not the full fixed palette) — used by
-  // App to render a legend. Empty until setPoints() has built the scale.
-  getFamilyLegend() {
-    if (!this._familyColorScale) return [];
-    return this._familyColorScale.domain().map(family => ({ family, color: this._familyColorScale(family) }));
+  // The label -> color mapping the current mode uses (only the values
+  // present in this dataset, not the full palette) — used by App to render
+  // a legend. Empty in 'custom' mode, where the language chips are the key.
+  getColorLegend() {
+    const scale = { language: this._languageColorScale, family: this._familyColorScale }[this._colorMode];
+    if (!scale) return [];
+    return scale.domain().map(label => ({ label, color: scale(label) }));
+  }
+
+  // ── 3D rotation ──────────────────────────────────────────────────────────
+  _fitSphere() {
+    const n = this.points.length;
+    this._center = [0, 1, 2].map(i => this.points.reduce((sum, d) => sum + d.p3[i], 0) / n);
+    this.radius = Math.max(1e-9, ...this.points.map(d =>
+      Math.hypot(d.p3[0] - this._center[0], d.p3[1] - this._center[1], d.p3[2] - this._center[2])));
+  }
+
+  // Rotates d.p3 about the center (yaw about the vertical axis, then pitch
+  // about the horizontal one) into the screen-plane x/y and depth.
+  _project(d) {
+    const [cx, cy, cz] = this._center;
+    const x = d.p3[0] - cx, y = d.p3[1] - cy, z = d.p3[2] - cz;
+    const cosY = Math.cos(this._yaw), sinY = Math.sin(this._yaw);
+    const cosP = Math.cos(this._pitch), sinP = Math.sin(this._pitch);
+    const x1 = cosY * x + sinY * z;
+    const z1 = -sinY * x + cosY * z;
+    d.x = x1;
+    d.y = cosP * y - sinP * z1;
+    d.depth = (sinP * y + cosP * z1) / this.radius;
+  }
+
+  _applyRotation() {
+    for (const d of this.points) this._project(d);
+    for (const d of this._tokenOverlayEntries) if (d.p3) this._project(d);
+  }
+
+  rotateBy(dYaw, dPitch) {
+    if (this.dims !== 3) return;
+    this._yaw += dYaw;
+    this._pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this._pitch + dPitch));
+    this._applyRotation();
+  }
+
+  resetRotation() {
+    this._yaw = DEFAULT_YAW;
+    this._pitch = DEFAULT_PITCH;
+    if (this.dims === 3) this._applyRotation();
+  }
+
+  // Near points are drawn bigger and more opaque than far ones (3D only).
+  _depthScale(d) {
+    return this.dims === 3 ? 1 + DEPTH_SIZE_RANGE * d.depth : 1;
+  }
+
+  _depthAlpha(d) {
+    return this.dims === 3 ? 1 - DEPTH_FADE * (1 - d.depth) / 2 : 1;
   }
 
   // Isolates the canvas to just the pinned points.
@@ -157,7 +237,12 @@ export class PointLayer {
       // (same-palette) sentence points around it.
       const color = d3.interpolateRgb(pin ? pin.color : '#e63946', '#ffffff')(TOKEN_LIGHTEN);
       for (const point of points) {
-        this._tokenOverlayEntries.push({ ...point, pinId, color });
+        const entry = { ...point, pinId, color };
+        if (this.dims === 3 && point.z !== undefined) {
+          entry.p3 = [point.x, point.y, point.z];
+          this._project(entry);
+        }
+        this._tokenOverlayEntries.push(entry);
       }
     }
     this._onChange();
@@ -205,14 +290,15 @@ export class PointLayer {
   }
 
   _baseOpacity(d) {
-    if (this._familyModeEnabled) return 1; // every point has a real family color, nothing to dim
+    if (this._colorMode !== 'custom') return 1; // every point has a real color, nothing to dim
     if (this._selectedLangs.size === 0) return 1;
     return this._selectedLangs.has(d.lang) ? 1 : FILTERED_OUT_OPACITY;
   }
 
   _colorFor(d) {
     if (this.isIsolatedOut(d)) return NEUTRAL_COLOR;
-    if (this._familyModeEnabled) return this._familyColorScale(d.family);
+    if (this._colorMode === 'family') return this._familyColorScale(d.family);
+    if (this._colorMode === 'language') return this._languageColorScale(d.lang);
     return this._selectedLangs.has(d.lang) ? this._langColorScale(d.lang) : NEUTRAL_COLOR;
   }
 
@@ -221,11 +307,28 @@ export class PointLayer {
   }
 
   // Whether `d` is actively colored (as opposed to plain background gray)
-  // — every point in family mode, or the language-filter's selected subset
-  // otherwise.
+  // — every point in language/family mode, or the language-filter's
+  // selected subset in custom mode.
   _isColored(d) {
     if (this.isIsolatedOut(d)) return false;
-    return this._familyModeEnabled || this._selectedLangs.has(d.lang);
+    return this._colorMode !== 'custom' || this._selectedLangs.has(d.lang);
+  }
+
+  // Whether a box-select may take `d`: not faded out by the isolate, and,
+  // when the language filter is narrowing the view, one of its languages.
+  _isSelectable(d) {
+    if (this.isIsolatedOut(d)) return false;
+    return this._colorMode !== 'custom' || this._selectedLangs.size === 0 || this._selectedLangs.has(d.lang);
+  }
+
+  // Points whose drawn position lies inside the rectangle, given in the
+  // same local (pre-zoom) coordinates as baseXScale/baseYScale output.
+  pointsInRect(x0, y0, x1, y1) {
+    return this.points.filter(d => {
+      if (!this._isSelectable(d)) return false;
+      const [px, py] = this._displayedPosition(d);
+      return px >= x0 && px <= x1 && py >= y0 && py <= y1;
+    });
   }
 
   _isolateActive() {
@@ -233,8 +336,8 @@ export class PointLayer {
   }
 
   // With "show pinned only" on, everything unpinned is faded out; otherwise
-  // the base coloring-mode opacity applies (family mode: always 1;
-  // language-filter mode: dim non-selected languages).
+  // the base coloring-mode opacity applies (language/family mode: always 1;
+  // custom mode: dim non-selected languages).
   _opacityTarget(d) {
     if (this._showPinnedOnly) return this._isPinned(d) ? 1 : ISOLATED_OUT_OPACITY;
     return this._baseOpacity(d);
@@ -272,13 +375,14 @@ export class PointLayer {
       else if (this._isColored(d)) colored.push(d);
       else background.push(d);
     }
+    if (this.dims === 3) for (const tier of [background, colored, pinned]) tier.sort((a, b) => a.depth - b.depth);
     for (const d of background) this._drawPoint(ctx, d, transform, hoveredId, positions);
     for (const d of colored) this._drawPoint(ctx, d, transform, hoveredId, positions);
     for (const d of pinned) this._drawPoint(ctx, d, transform, hoveredId, positions);
 
     for (const d of this._tokenOverlayEntries) {
       const [cx, cy] = positions ? positions.get(d.id) : [this.baseXScale(d.x), this.baseYScale(d.y)];
-      const size = (TOKEN_SIZE_FACTOR * POINT_RADIUS) / transform.k;
+      const size = (TOKEN_SIZE_FACTOR * POINT_RADIUS * this._depthScale(d)) / transform.k;
       ctx.beginPath();
       ctx.moveTo(cx, cy - size);
       ctx.lineTo(cx + size, cy);
@@ -346,19 +450,21 @@ export class PointLayer {
     const [cx, cy] = fisheyePositions ? fisheyePositions.get(d.id) : [this.baseXScale(d.x), this.baseYScale(d.y)];
     const hovered = d.id === hoveredId;
     ctx.beginPath();
-    ctx.arc(cx, cy, POINT_RADIUS / transform.k, 0, 2 * Math.PI);
-    ctx.globalAlpha = d.opacity * 0.8;
+    const scale = this._depthScale(d);
+    const alpha = d.opacity * this._depthAlpha(d);
+    ctx.arc(cx, cy, (POINT_RADIUS * scale) / transform.k, 0, 2 * Math.PI);
+    ctx.globalAlpha = alpha * 0.8;
     ctx.fillStyle = this._colorFor(d);
     ctx.fill();
-    ctx.globalAlpha = d.opacity;
+    ctx.globalAlpha = alpha;
     ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
     ctx.strokeStyle = hovered ? '#333' : '#fff';
     ctx.stroke();
     const pin = this._pinsById.get(d.id);
     if (pin) {
       ctx.beginPath();
-      ctx.arc(cx, cy, 8.5 / transform.k, 0, 2 * Math.PI);
-      ctx.globalAlpha = d.opacity;
+      ctx.arc(cx, cy, (8.5 * scale) / transform.k, 0, 2 * Math.PI);
+      ctx.globalAlpha = alpha;
       ctx.lineWidth = (pin.focused ? 2.6 : 1.8) / transform.k;
       ctx.strokeStyle = pin.color;
       ctx.stroke();

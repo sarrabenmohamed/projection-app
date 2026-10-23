@@ -1,7 +1,7 @@
 # Embedding Projection
 
 A D3/canvas viewer for exploring high-dimensional embeddings (UMAP or
-t-SNE) in 2D — built around FLORES-200 parallel sentence embeddings, but
+t-SNE) in 2D or 3D — built around FLORES-200 parallel sentence embeddings, but
 accepts any embeddings JSON.
 
 A single FastAPI process computes projections server-side and also serves
@@ -30,7 +30,9 @@ sidebar and choose the FLORES-200 language codes, sentences per language
 (1–1012), model and pooling (`mean` | `max` | `cls` — how token vectors
 combine into a sentence vector). Memory and time grow with languages ×
 sentences, so start small (the default is 5 languages × 100 sentences).
-Each configuration is cached under `data/`, so repeating it is instant.
+Each language is cached under `data/`, so repeating a load (or adding a
+language to it) only embeds what is new. **Cancel** (or Esc) in the loading
+overlay stops a running embedding job; the current dataset is kept.
 
 ## Demo
 
@@ -86,12 +88,17 @@ feature (translations, tokens) has something to show.
   curve underneath: **D3** is a hand-ported version of the classic
   `d3.fisheye.circular()` plugin (exponential falloff); **Geometric** is
   this project's own simpler rational-falloff curve.
-- **Color by language family** (default on) — every point colored by its
-  language's linguistic family, with a legend underneath the checkbox.
-  Uncheck to switch to **Filter languages** instead — pick specific
-  languages to get real colors, with everything else neutral gray. The
-  two modes are mutually exclusive; the language search is disabled
-  while family coloring is active.
+- **Color points by** — **Language** (default; one hue per language, with a
+  legend), **Language family**, or **Chosen languages only**, which shows a
+  picker: only the languages you add get a color, everything else is
+  neutral gray. The modes are mutually exclusive.
+- **Select an area** — right-drag (or Ctrl+drag, for trackpads) on the plot
+  to draw a box; every visible point inside it is added to the selection.
+- **3D view** — re-projects into three dimensions. Drag to rotate, Shift+drag
+  to pan, scroll to zoom; **Reset view** restores the default angle. Nearer
+  points are drawn larger and more opaque. Selection, colours, the fisheye
+  lens, box-select and tokens all work in 3D; switching 2D ↔ 3D keeps the
+  selection (token overlays are dropped, as for any refit).
 - **Search the data table** — a bare query matches language or text by
   substring. Pick a column in the dropdown next to the search box to
   search just that one, or prefix the query with it: `id=`, `lang=`,

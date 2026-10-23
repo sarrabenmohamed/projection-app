@@ -25,3 +25,39 @@ def test_token_vectors_same_dim_as_hidden_size():
     hidden = torch.zeros((1, 2, 768))
     tvecs = ep._token_vectors(hidden, ["a", "b"], [0, 0])
     assert all(len(t["vector"]) == 768 for t in tvecs)
+
+
+class _FakeDataset:
+    def select(self, rows):
+        return [{"sentence": f"s{i}"} for i in rows]
+
+
+def _stub_pipeline(monkeypatch):
+    class Model:
+        def eval(self):
+            pass
+
+    monkeypatch.setattr(ep, "load_dataset", lambda *a, **kw: _FakeDataset())
+    monkeypatch.setattr(ep.AutoTokenizer, "from_pretrained", lambda *a, **kw: object())
+    monkeypatch.setattr(ep.AutoModel, "from_pretrained", lambda *a, **kw: Model())
+    embedded = []
+
+    def embed(sent, tokenizer, model, pooling):
+        embedded.append(sent)
+        return [0.0, 1.0], []
+
+    monkeypatch.setattr(ep, "embed_sentence", embed)
+    return embedded
+
+
+def test_build_dataset_stops_when_cancelled(monkeypatch):
+    embedded = _stub_pipeline(monkeypatch)
+    with pytest.raises(ep.EmbeddingCancelled):
+        ep.build_dataset(["eng_Latn"], 5, "m", should_cancel=lambda: len(embedded) >= 2)
+    assert embedded == ["s0", "s1"]
+
+
+def test_build_dataset_runs_to_the_end_when_not_cancelled(monkeypatch):
+    embedded = _stub_pipeline(monkeypatch)
+    result = ep.build_dataset(["eng_Latn"], 3, "m", should_cancel=lambda: False)
+    assert len(result["points"]) == 3 and len(embedded) == 3
