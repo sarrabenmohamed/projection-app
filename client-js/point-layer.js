@@ -72,6 +72,11 @@ function _fisheyeOffset(dx, dy, radius, distortion, style) {
     : _fisheyeOffsetD3(dx, dy, radius, distortion);
 }
 
+// Token diamonds are larger than sentence circles, a lightened pin color
+// with a dark outline, so they read as a different kind of mark.
+const TOKEN_SIZE_FACTOR = 1.6;
+const TOKEN_LIGHTEN = 0.35;
+
 export class PointLayer {
   constructor(onChange) {
     this._onChange = onChange; // called after every opacity update, so the owner redraws
@@ -148,7 +153,9 @@ export class PointLayer {
     this._tokenOverlayEntries = [];
     for (const [pinId, points] of overlaysByPin) {
       const pin = this._pinsById.get(pinId);
-      const color = pin ? pin.color : '#e63946';
+      // Lighter than the pin's own color, so a token never blends into the
+      // (same-palette) sentence points around it.
+      const color = d3.interpolateRgb(pin ? pin.color : '#e63946', '#ffffff')(TOKEN_LIGHTEN);
       for (const point of points) {
         this._tokenOverlayEntries.push({ ...point, pinId, color });
       }
@@ -271,18 +278,18 @@ export class PointLayer {
 
     for (const d of this._tokenOverlayEntries) {
       const [cx, cy] = positions ? positions.get(d.id) : [this.baseXScale(d.x), this.baseYScale(d.y)];
-      const size = POINT_RADIUS / transform.k;
+      const size = (TOKEN_SIZE_FACTOR * POINT_RADIUS) / transform.k;
       ctx.beginPath();
       ctx.moveTo(cx, cy - size);
       ctx.lineTo(cx + size, cy);
       ctx.lineTo(cx, cy + size);
       ctx.lineTo(cx - size, cy);
       ctx.closePath();
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 1;
       ctx.fillStyle = d.color;
       ctx.fill();
-      ctx.lineWidth = 0.75 / transform.k;
-      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.25 / transform.k;
+      ctx.strokeStyle = '#222';
       ctx.stroke();
     }
     ctx.restore();
