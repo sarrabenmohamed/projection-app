@@ -93,8 +93,9 @@ feature (translations, tokens) has something to show.
   two modes are mutually exclusive; the language search is disabled
   while family coloring is active.
 - **Search the data table** — a bare query matches language or text by
-  substring; prefix it with a column name to target just that column
-  instead: `id=`, `lang=`, `text=`, or `pairid=`. `id=`/`pairid=` require
+  substring. Pick a column in the dropdown next to the search box to
+  search just that one, or prefix the query with it: `id=`, `lang=`,
+  `text=`, or `pairid=`. `id=`/`pairid=` require
   an exact match (so `pairid=1` doesn't also pull in "10", "11", ...);
   `lang=`/`text=` still match by substring. Ephemeral — clears whenever
   a new dataset loads, not part of the shareable link.

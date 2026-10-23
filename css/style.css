@@ -117,6 +117,8 @@ body.resizing-y { cursor: row-resize; }
    let the table take the freed space instead of leaving it blank. */
 #data-table { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #data-table .dt-top { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+#data-table .dt-field { font-size: 0.8em; padding: 3px 4px; }
+#data-table .dt-empty { padding: 14px 10px; color: #888; font-size: 0.85em; text-align: center; }
 #data-table .dt-search { flex: 1; font-size: 0.8em; padding: 4px 6px; }
 #data-table .dt-show-selected-label { font-size: 0.78em; color: #555; white-space: nowrap; }
 #data-table .dt-select-all, #data-table .dt-clear-selection { font-size: 0.75em; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
