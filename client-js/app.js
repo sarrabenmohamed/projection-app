@@ -58,7 +58,8 @@ class App {
       .addEventListener('change', () => { this._syncParamVisibility(); this._refresh({ keepState: true }); });
     this._syncParamVisibility();
     document.getElementById('metric-select')
-      .addEventListener('change', () => this._refresh({ keepState: true }));
+      .addEventListener('change', () => { this._syncMetricDescription(); this._refresh({ keepState: true }); });
+    this._syncMetricDescription();
     // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
     // auto-refresh on change — editing more than one before blurring away
     // would fire a _refresh() per field, and an in-flight response's
@@ -116,6 +117,13 @@ class App {
     const umap = document.getElementById('method-select').value === 'umap';
     document.getElementById('umap-params').hidden = !umap;
     document.getElementById('tsne-params').hidden = umap;
+  }
+
+  // The option's own title doubles as an always-visible explanation, since
+  // hover text on <option> isn't shown by every browser.
+  _syncMetricDescription() {
+    const select = document.getElementById('metric-select');
+    document.getElementById('metric-description').textContent = select.selectedOptions[0].title;
   }
 
   _umapParams() {
