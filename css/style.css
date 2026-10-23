@@ -154,7 +154,6 @@ body { margin: 0; font-family: sans-serif; background: #fff; }
 .actions-menu-line.actions-menu-disabled { color: #999; cursor: not-allowed; }
 .actions-menu-line.actions-menu-disabled:hover { background: none; }
 .actions-menu-check { width: 1.2em; }
-.actions-menu-divider { border-top: 1px solid #eee; margin: 4px 0; }
 
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #projection-panel { flex: 1; min-height: 0; }

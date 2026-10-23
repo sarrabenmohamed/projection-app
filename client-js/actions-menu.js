@@ -41,16 +41,6 @@ export function renderActionsMenu(point, detail, canTranslate, { onToggleTransla
     }));
   }
 
-  const divider = document.createElement('div');
-  divider.className = 'actions-menu-divider';
-  menu.appendChild(divider);
-
-  const configureLine = document.createElement('div');
-  configureLine.className = 'actions-menu-line actions-menu-disabled';
-  configureLine.textContent = 'Configure…';
-  configureLine.setAttribute('aria-disabled', 'true');
-  menu.appendChild(configureLine);
-
   const menuKey = `${ownerKey}:${point.id}`;
 
   if (openMenuId === menuKey) menu.classList.add('open');

@@ -243,9 +243,7 @@ a render-a-dropdown-for-this-point-id function, not a class with its own
 selection state — `App`'s `_detailState` is the single source of truth
 it reads from and calls back into). One `Actions ▾` button per pinned
 row opens a checklist popover: Translations, Tokens (omitted if
-`!point.hasTokens`), a divider, and a disabled "Configure…" placeholder
-reserving the menu shape for a
-future holistic per-point settings panel. The dropdown stays open
+`!point.hasTokens`). The dropdown stays open
 across multiple clicks inside it (`openMenuId` module-level state in
 `actions-menu.js`) — closing only on an outside click or Escape
 (`installActionsMenuOutsideClickHandler`, installed once in
