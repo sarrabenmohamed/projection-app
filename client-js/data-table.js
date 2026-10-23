@@ -297,6 +297,14 @@ export class DataTable {
     pinCheckbox.addEventListener('change', e => { e.stopPropagation(); this._onRowClick({ ...p, type: 'sentence' }); });
     tr.querySelector('.dt-pin-col').appendChild(pinCheckbox);
 
+    // The whole row toggles the pin, not just the checkbox — except clicks on
+    // the checkbox itself / the Actions menu, and drags that selected text.
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input, button, .actions-menu')) return;
+      if (window.getSelection().toString()) return;
+      this._onRowClick({ ...p, type: 'sentence' });
+    });
+
     if (pin) {
       const actionsCell = tr.querySelector('.dt-actions-cell');
       const canTranslate = this._pins.length === 1;
