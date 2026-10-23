@@ -278,7 +278,9 @@ export class ProjectionView {
   // something hidden.
   _pointAt(event) {
     const [x, y] = this._screenToLocal(event);
-    const found = this.quadtree.find(x, y, 8 / this.axes.transform.k);
+    const radius = 8 / this.axes.transform.k;
+    if (this.pointLayer.fisheyeActive) return this.pointLayer.pointAtDisplayed(x, y, radius);
+    const found = this.quadtree.find(x, y, radius);
     if (found && this.pointLayer.isIsolatedOut(found)) return undefined;
     return found;
   }

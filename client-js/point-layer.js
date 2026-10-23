@@ -96,6 +96,7 @@ export class PointLayer {
     this._tokenOverlayEntries = [];
     this._pinsById = new Map();
     this._showPinnedOnly = false;
+    this._displayPositions = null;
     this.points = points.map(p => ({ ...p, opacity: 1 }));
     const families = Array.from(new Set(this.points.map(p => p.family))).sort();
     this._familyColorScale = d3.scaleOrdinal(families, FAMILY_COLORS);
@@ -161,12 +162,34 @@ export class PointLayer {
 
   tokenOverlayPointAt(x, y, radius) {
     for (const d of this._tokenOverlayEntries) {
-      const dx = this.baseXScale(d.x) - x;
-      const dy = this.baseYScale(d.y) - y;
-      if (Math.hypot(dx, dy) <= radius) return d;
+      const [px, py] = this._displayedPosition(d);
+      if (Math.hypot(px - x, py - y) <= radius) return d;
     }
     return undefined;
   }
+
+  // Where d was last drawn: the lens-displaced position while the fisheye is
+  // on, its plain position otherwise.
+  _displayedPosition(d) {
+    return this._displayPositions?.get(d.id) || [this.baseXScale(d.x), this.baseYScale(d.y)];
+  }
+
+  // Nearest visible point to (x, y) within `radius`, using the positions the
+  // fisheye actually drew (the quadtree only knows the undistorted ones).
+  // Returns undefined when the lens isn't active, so callers fall back to it.
+  pointAtDisplayed(x, y, radius) {
+    if (!this._displayPositions) return undefined;
+    let best, bestDist = radius;
+    for (const d of this.points) {
+      if (this.isIsolatedOut(d)) continue;
+      const [px, py] = this._displayedPosition(d);
+      const dist = Math.hypot(px - x, py - y);
+      if (dist <= bestDist) { best = d; bestDist = dist; }
+    }
+    return best;
+  }
+
+  get fisheyeActive() { return this._displayPositions != null; }
 
   // langs = the currently selected subset from the language filter (may be
   // empty). Colors are assigned fresh among just this subset, so 3 selected
@@ -238,6 +261,7 @@ export class PointLayer {
     ctx.scale(transform.k, transform.k);
 
     const positions = fisheyeFocus ? this._computeFisheyePositions(fisheyeFocus, transform) : null;
+    this._displayPositions = positions;
 
     // Three-tier z-order so canvas draw order (dataset order, not by any
     // notion of importance) never buries something the user should be
