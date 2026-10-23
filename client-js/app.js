@@ -10,6 +10,7 @@ import { LangFilter } from './lang-filter.js';
 import { installTooltips } from './help-tips.js';
 import { StatsView } from './stats-view.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
+import { makeResizable } from './resizer.js';
 
 const PANEL_IDS = ['sidebar', 'projection-panel', 'data-table-panel', 'stats-panel'];
 
@@ -96,7 +97,14 @@ class App {
       .addEventListener('click', () => this._toggleFullscreen('stats-panel'));
     installTooltips();
     this._initPanels();
-    this._initResizeHandle();
+    const resizeView = () => this.view.resize();
+    const resizable = (handleId, panelId, storageKey, options) => makeResizable({
+      handle: document.getElementById(handleId), panel: document.getElementById(panelId),
+      storageKey, onResize: resizeView, ...options,
+    });
+    resizable('data-table-resize-handle', 'data-table-panel', 'projection-app-table-height', { axis: 'y', sign: -1, min: 100 });
+    resizable('stats-resize-handle', 'stats-panel', 'projection-app-stats-height', { axis: 'y', sign: -1, min: 100 });
+    resizable('sidebar-resize-handle', 'sidebar', 'projection-app-sidebar-width', { axis: 'x', sign: 1, min: 200, max: 600 });
     installActionsMenuOutsideClickHandler();
 
     await this._refresh();
@@ -192,45 +200,10 @@ class App {
   // are actually on screen to trade space with each other.
   _updateResizeHandleVisibility() {
     const open = id => !this._collapsed.has(id) && !document.getElementById(id).classList.contains('hidden');
-    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(open('projection-panel') && open('data-table-panel')));
-  }
-
-  // Drag-to-resize between the projection and data-table panels. Sets an
-  // explicit inline height on #data-table-panel (overriding its CSS
-  // default), persisted across reloads like the collapsed state.
-  // Dragging the handle down shrinks the table (and lets the flex:1
-  // projection panel above it grow into the freed space); dragging up
-  // grows it — the opposite of the mouse's own screen-Y direction, since
-  // the table sits below the handle.
-  _initResizeHandle() {
-    const STORAGE_KEY = 'projection-app-table-height';
-    const handle = document.getElementById('data-table-resize-handle');
-    const panel = document.getElementById('data-table-panel');
-    const MIN_HEIGHT = 100;
-
-    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
-    if (Number.isFinite(saved) && saved > 0) panel.style.height = `${saved}px`;
-
-    let startY = 0, startHeight = 0;
-    const onMouseMove = e => {
-      const delta = e.clientY - startY;
-      panel.style.height = `${Math.max(MIN_HEIGHT, startHeight - delta)}px`;
-      this.view.resize();
-    };
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      handle.classList.remove('dragging');
-      localStorage.setItem(STORAGE_KEY, parseInt(panel.style.height, 10));
-    };
-    handle.addEventListener('mousedown', e => {
-      startY = e.clientY;
-      startHeight = panel.getBoundingClientRect().height;
-      handle.classList.add('dragging');
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-      e.preventDefault();
-    });
+    const fixedHeight = id => open(id) && !document.getElementById(id).classList.contains('grow');
+    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(open('projection-panel') && fixedHeight('data-table-panel')));
+    document.getElementById('sidebar-resize-handle').classList.toggle('hidden', this._collapsed.has('sidebar'));
+    document.getElementById('stats-resize-handle').classList.toggle('hidden', !((open('projection-panel') || open('data-table-panel')) && fixedHeight('stats-panel')));
   }
 
   _toggleFormatHelp() {

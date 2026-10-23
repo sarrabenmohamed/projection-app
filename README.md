@@ -104,8 +104,9 @@ feature (translations, tokens) has something to show.
   projection, data table, statistics) folds it down to its title bar and
   the others take over the space; the state is remembered across
   reloads. ⤢ still makes one view fill the window.
-- **Resize the data table** — drag the thin handle between the plot and
-  the table; the split is remembered across reloads.
+- **Resize the panels** — drag the thin handle beside the sidebar, or
+  above the data table and statistics; the sizes are remembered across
+  reloads.
 - **Load embeddings** — upload your own dataset as JSON, JSONL (one point
   per line) or CSV/TSV (`id`, `lang`, optional `text`/`pairId`/`family`, and
   either a `vector` column or one numeric column per dimension); click "?"
