@@ -54,10 +54,10 @@ class App {
     document.getElementById('flores-load-button')
       .addEventListener('click', () => this._onLoadFlores());
     document.getElementById('method-select')
-      .addEventListener('change', () => { this._syncParamVisibility(); this._refresh(); });
+      .addEventListener('change', () => { this._syncParamVisibility(); this._refresh({ keepState: true }); });
     this._syncParamVisibility();
     document.getElementById('metric-select')
-      .addEventListener('change', () => this._refresh());
+      .addEventListener('change', () => this._refresh({ keepState: true }));
     // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
     // auto-refresh on change — editing more than one before blurring away
     // would fire a _refresh() per field, and an in-flight response's
@@ -65,7 +65,7 @@ class App {
     // then clobber a value the user typed into another field afterward.
     // Refit is the one explicit trigger for all of them.
     document.getElementById('refit-button')
-      .addEventListener('click', () => this._refresh());
+      .addEventListener('click', () => this._refresh({ keepState: true }));
     document.getElementById('label-select')
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
@@ -313,7 +313,10 @@ class App {
     this._refresh();
   }
 
-  async _refresh() {
+  // keepState is for re-projecting the dataset that's already loaded (method,
+  // metric, params): selection, pins and the language colouring survive.
+  // Loading a different dataset always starts clean.
+  async _refresh({ keepState = false } = {}) {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
     const hyperparams = method === 'umap' ? this._umapParams() : this._tsneParams();
@@ -338,22 +341,36 @@ class App {
     }
 
     this._setLoading(false);
-    this._loadDataset(meta, proj);
+    this._loadDataset(meta, proj, keepState);
   }
 
-  _loadDataset(meta, proj) {
+  _loadDataset(meta, proj, keepState = false) {
     const hint = document.getElementById('projection-hint');
     if (hint) hint.remove();
 
-    this._selection = [];
-    this._focusedId = null;
-    this._detailState.clear();
-    this._pinColors.clear();
-    this.view.clearHighlight();
-    this.view.setPinnedPoints([]);
-    this.view.setTokenOverlays(new Map());
-    this._refreshStats();
-    this._setShowSelectedOnly(false); // DataTable.setPoints() below resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
+    // Only trust keepState if it really is the same set of points.
+    const sameDataset = keepState
+      && meta.points.length === this.points.length
+      && meta.points.every((p, i) => p.id === this.points[i].id);
+
+    if (sameDataset) {
+      // Token points were projected into the previous fit's space.
+      for (const detail of this._detailState.values()) {
+        detail.tokens = false;
+        detail.tokenPoints = [];
+      }
+      this.view.clearHighlight();
+    } else {
+      this._selection = [];
+      this._focusedId = null;
+      this._detailState.clear();
+      this._pinColors.clear();
+      this.view.clearHighlight();
+      this.view.setPinnedPoints([]);
+      this.view.setTokenOverlays(new Map());
+      this._refreshStats();
+      this._setShowSelectedOnly(false); // DataTable.setPoints() below resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
+    }
 
     const coordsById = new Map(proj.points.map(p => [p.id, p]));
     this.points = meta.points.map(p => {
@@ -383,9 +400,21 @@ class App {
       }
     }
 
-    this.langFilter.setLangs(meta.lang_codes);
-    this.table.setPoints(this.points);
-    this.view.update(this.points, d => this.onCanvasClickPoint(d));
+    if (sameDataset) {
+      this.table.updatePoints(this.points);
+      this.view.update(this.points, d => this.onCanvasClickPoint(d));
+      // PointLayer.setPoints() resets its own per-dataset state; re-apply it.
+      this.view.setLangFilter(this.langFilter.getSelected());
+      this.view.setShowPinnedOnly(this.table.isShowSelectedOnly());
+      this._syncPins();
+      for (const [id, detail] of this._detailState) {
+        if (detail.translations) this.view.highlightParallel(this.points.find(p => p.id === id).groupKey);
+      }
+    } else {
+      this.langFilter.setLangs(meta.lang_codes);
+      this.table.setPoints(this.points);
+      this.view.update(this.points, d => this.onCanvasClickPoint(d));
+    }
     this._renderFamilyLegend();
   }
 
@@ -584,9 +613,8 @@ class App {
   // Tokens are independent per pinned point. Token projection only exists
   // in the shared UMAP space (see server.py's _get_umap_reducer), so if
   // the main view is on t-SNE this switches it to UMAP first — that runs
-  // _refresh(), which (like any _refresh()) wipes the entire selection —
-  // and then explicitly re-pins just this one point afterward, the one
-  // deliberate exception to "any _refresh() clears everything."
+  // _refresh({ keepState: true }), which keeps the selection (token points
+  // from the old fit are dropped).
   async onToggleTokens(point) {
     const detail = this._detailState.get(point.id);
     if (!detail) return;
@@ -601,10 +629,9 @@ class App {
     if (methodSelect.value !== 'umap') {
       methodSelect.value = 'umap';
       this._syncParamVisibility();
-      await this._refresh();
+      await this._refresh({ keepState: true });
       const reselected = this.points.find(p => p.id === point.id);
-      if (!reselected) return;
-      this._togglePin(reselected);
+      if (!reselected || !this._detailState.has(point.id)) return;
       point = reselected;
       document.getElementById('status').textContent += ' · switched to UMAP to show tokens';
     }

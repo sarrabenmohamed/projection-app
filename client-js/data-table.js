@@ -144,6 +144,13 @@ export class DataTable {
     this._render();
   }
 
+  // Same dataset, new coordinates: swap the rows but keep pins, search,
+  // sort and page.
+  updatePoints(points) {
+    this.points = points;
+    this._render();
+  }
+
   // Highlights a row without touching which sentence's actions are shown
   // — used for token row clicks, since a token has no actions of its own
   // and shouldn't hide its parent sentence's.
