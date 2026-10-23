@@ -26,7 +26,7 @@ class App {
       { containerId: 'data-table' },
       {
         onRowClick: row => this.onSelectRow(row),
-        onToggleTranslations: point => this.onToggleTranslations(point),
+        onSelectTranslations: point => this.onSelectTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
         onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
         onClearSelection: () => this.clearSelection(),
@@ -41,7 +41,7 @@ class App {
     this.points = [];
     this._selection = [];           // ordered array of pinned ids, insertion order
     this._focusedId = null;
-    this._detailState = new Map();  // id -> {translations, tokens, tokenPoints}
+    this._detailState = new Map();  // id -> {tokens, tokenPoints}
     this._pinColors = new Map();    // id -> color string
     this._statsRequest = 0;         // bumps on every selection change so a stale /stats response is dropped
     this._statsTimer = null;
@@ -332,13 +332,11 @@ class App {
         detail.tokens = false;
         detail.tokenPoints = [];
       }
-      this.view.clearHighlight();
     } else {
       this._selection = [];
       this._focusedId = null;
       this._detailState.clear();
       this._pinColors.clear();
-      this.view.clearHighlight();
       this.view.setPinnedPoints([]);
       this.view.setTokenOverlays(new Map());
       this._refreshStats();
@@ -380,9 +378,6 @@ class App {
       this.view.setLangFilter(this.langFilter.getSelected());
       this.view.setShowPinnedOnly(this.table.isShowSelectedOnly());
       this._syncPins();
-      for (const [id, detail] of this._detailState) {
-        if (detail.translations) this.view.highlightParallel(this.points.find(p => p.id === id).groupKey);
-      }
     } else {
       this.langFilter.setLangs(meta.lang_codes);
       this.table.setPoints(this.points);
@@ -475,26 +470,13 @@ class App {
     this._togglePin(row);
   }
 
-  // Toggles `point`'s membership in the selection set. Pinning a *second*
-  // point while the sole existing pin has translations shown auto-clears
-  // that flag first — translations can only ever be active for exactly
-  // one pinned point (see onToggleTranslations), so going from 1 -> 2
-  // pins must never leave it active.
+  // Toggles `point`'s membership in the selection set.
   _togglePin(point) {
     const idx = this._selection.indexOf(point.id);
     if (idx === -1) {
-      if (this._selection.length === 1) {
-        const soleDetail = this._detailState.get(this._selection[0]);
-        if (soleDetail.translations) {
-          soleDetail.translations = false;
-          this.view.clearHighlight();
-        }
-      }
       this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
       this._selection.push(point.id);
-      this._detailState.set(point.id, {
-        translations: false, tokens: false, tokenPoints: [],
-      });
+      this._detailState.set(point.id, { tokens: false, tokenPoints: [] });
       this._focusedId = point.id;
     } else {
       this._selection.splice(idx, 1);
@@ -515,19 +497,10 @@ class App {
   selectPoints(points) {
     const toAdd = points.filter(p => !this._detailState.has(p.id));
     if (toAdd.length === 0) return;
-    // Translations only exist while exactly one point is pinned (see
-    // _togglePin), and this always takes the selection past one.
-    if (this._selection.length === 1) {
-      const soleDetail = this._detailState.get(this._selection[0]);
-      if (soleDetail.translations) {
-        soleDetail.translations = false;
-        this.view.clearHighlight();
-      }
-    }
     for (const point of toAdd) {
       this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
       this._selection.push(point.id);
-      this._detailState.set(point.id, { translations: false, tokens: false, tokenPoints: [] });
+      this._detailState.set(point.id, { tokens: false, tokenPoints: [] });
     }
     // First, not last: the table pages to the focused row, and a batch
     // select-all shouldn't jump you to the end of the list.
@@ -542,7 +515,6 @@ class App {
     this._focusedId = null;
     this._detailState.clear();
     this._pinColors.clear();
-    this.view.clearHighlight();
     this._syncPins();
     this._refreshStats();
   }
@@ -570,17 +542,14 @@ class App {
     }, 150);
   }
 
-  // Translations only exist for exactly one pinned point at a time — see
-  // SELECTION-STATE.md. Callers (the row's button/dropdown) are expected
-  // to already be disabled when _selection.length !== 1, but this method
-  // defends against being reached anyway rather than corrupting state.
-  onToggleTranslations(point) {
-    if (this._selection.length !== 1 || this._selection[0] !== point.id) return;
-    const detail = this._detailState.get(point.id);
-    detail.translations = !detail.translations;
-    if (detail.translations) this.view.highlightParallel(point.groupKey);
-    else this.view.clearHighlight();
-    this._syncPins();
+  // Pins every translation of `point` (all points sharing its pairId) and
+  // isolates the plot to the selection, so the whole group is both
+  // highlighted and selected — ready for the statistics panel.
+  onSelectTranslations(point) {
+    const group = this.points.filter(p => p.groupKey === point.groupKey);
+    this.selectPoints(group);
+    this.table.setShowSelectedOnly(true);
+    this._setShowSelectedOnly(true);
   }
 
   // Tokens are independent per pinned point. Token projection only exists

@@ -10,7 +10,7 @@
 // clicked.
 let openMenuId = null; // at most one Actions menu open per container (keyed by `${ownerKey}:${point.id}`) at a time
 
-export function renderActionsMenu(point, detail, canTranslate, { onToggleTranslations, onToggleTokens }, ownerKey) {
+export function renderActionsMenu(point, detail, canTranslate, { onSelectTranslations, onToggleTokens }, ownerKey) {
   const wrap = document.createElement('span');
   wrap.className = 'actions-menu';
 
@@ -25,11 +25,10 @@ export function renderActionsMenu(point, detail, canTranslate, { onToggleTransla
   wrap.appendChild(menu);
 
   menu.appendChild(_menuLine({
-    label: 'Translations',
-    checked: detail.translations,
+    label: 'Select translations',
     disabled: !canTranslate,
-    disabledTitle: 'Only available with a single point selected',
-    onToggle: () => onToggleTranslations(point),
+    disabledTitle: 'No other points share this pairId',
+    onToggle: () => onSelectTranslations(point),
   }));
 
   if (point.hasTokens) {
@@ -60,10 +59,12 @@ function _menuLine({ label, checked, disabled, disabledTitle, onToggle }) {
   line.className = 'actions-menu-line' + (disabled ? ' actions-menu-disabled' : '');
   if (disabled && disabledTitle) line.title = disabledTitle;
 
-  const check = document.createElement('span');
-  check.className = 'actions-menu-check';
-  check.textContent = checked ? '☑' : '☐';
-  line.appendChild(check);
+  if (checked !== undefined) {
+    const check = document.createElement('span');
+    check.className = 'actions-menu-check';
+    check.textContent = checked ? '☑' : '☐';
+    line.appendChild(check);
+  }
 
   const text = document.createElement('span');
   text.textContent = label;

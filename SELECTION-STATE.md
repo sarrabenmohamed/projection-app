@@ -1,6 +1,6 @@
 # Selection state machine
 
-Reference for how the pinned-point set, translations-isolate, the
+Reference for how the pinned-point set, the "show selected" isolate, the
 per-pin token overlays, and the two canvas-coloring modes
 interact — all owned by `App` (`client-js/app.js`) and mirrored into
 `DataTable`/`ProjectionView`. Written down once so future features have
@@ -25,8 +25,8 @@ Four pieces of state, all on `App`:
   (heavier canvas ring, highlighted table row) — it does not gate which
   rows get an `Actions ▾` dropdown; every pinned row gets one regardless
   of focus.
-- `_detailState` — `Map<id, { translations, tokens, tokenPoints }>`. An
-  entry is created (both flags off) when a point is first pinned via
+- `_detailState` — `Map<id, { tokens, tokenPoints }>`. An
+  entry is created (tokens off) when a point is first pinned via
   `_togglePin`, and deleted when it's unpinned — no stale entries linger
   for a point that isn't currently pinned.
 - `_pinColors` — `Map<id, color>` assigning each currently-pinned point
@@ -55,12 +55,6 @@ via `onCanvasClickPoint`; both route through `_togglePin`):
 - Not currently pinned: assign it the next color in `PIN_PALETTE`, push
   its id onto `_selection`, create its `_detailState` entry with every
   flag off, and set `_focusedId` to it.
-  - Exception: if this is the *second* pin and the sole existing pin
-    currently has `translations` on, that flag (and the canvas isolate
-    it was driving) is cleared first, in the same `_togglePin` call —
-    translations can only ever be active while exactly one point is
-    pinned (see below), so going from 1 → 2 pins must never leave it
-    active on the point that's about to stop being the only one.
 - Currently pinned: remove its id from `_selection`, delete its
   `_detailState` and `_pinColors` entries. If it was `_focusedId`, focus
   moves to the new last item in `_selection`, or `null` if the set is
@@ -90,19 +84,16 @@ path above.)
 **Clear selection button** (`DataTable`'s `.dt-clear-selection`,
 `App.clearSelection()`): clears the entire selection — every pinned id
 is removed from `_selection`, every `_detailState`/`_pinColors` entry is
-deleted, `_focusedId` resets to `null`, and any active translations
-isolate is cleared on the canvas. Disabled whenever `_selection` is
+deleted, `_focusedId` resets to `null`. Disabled whenever `_selection` is
 empty.
 
 **Select all button** (`DataTable`'s `.dt-select-all`,
 `App.selectPoints(points)`): pins every row matching the table's current
-filter (search, translations group, show-selected), across all pages —
+filter (search, show-selected), across all pages —
 not just the visible page. Points that are already pinned are skipped;
 the rest get the same treatment as the pin branch of `_togglePin`
 (next palette color, empty `_detailState` entry), in one batch so
-`_syncPins()` and the stats refresh run once. If exactly one point was
-pinned with `translations` on, that flag is cleared first, since the
-selection is about to exceed one. `_focusedId` becomes the *first* newly
+`_syncPins()` and the stats refresh run once. `_focusedId` becomes the *first* newly
 pinned row (not the last), so the table pages to the start of the
 batch instead of jumping to the end of the list. Disabled when the
 table has no rows. The palette only has 10 colors, so a large batch
@@ -110,8 +101,8 @@ reuses them cyclically.
 
 **Statistics panel** (`StatsView`, `App._refreshStats()`): every change
 to `_selection` (`_togglePin`, `selectPoints`, `clearSelection`, a new
-dataset) re-requests `POST /stats` with the pinned ids; token or
-translation toggles don't, since they don't change the pinned set. The
+dataset) re-requests `POST /stats` with the pinned ids; token
+toggles don't, since they don't change the pinned set. The
 request is debounced (150ms) and guarded by a counter so a slow response
 for an older selection is dropped. An empty selection shows a hint
 instead of calling the backend. The statistics are cosine in the full
@@ -122,22 +113,13 @@ cross-language pairs, plus MEXA-style retrieval accuracy over the
 translations (needs at least 2). Datasets without `pairId` get the
 overall numbers only.
 
-**Show/Hide translations** (`onToggleTranslations(point)`): toggles
-`_detailState.get(point.id).translations`. Guarded by `_selection.length
-!== 1 || _selection[0] !== point.id` — a no-op if reached any other way,
-though callers (the `Actions ▾` dropdown's "Translations" line) are
-already expected to have it disabled whenever more than one point is
-pinned, so this is defense-in-depth rather than the primary gate. When
-turned on, isolates the point's translation group on the canvas
-(`view.highlightParallel(point.groupKey)`) and collapses the table to
-that group (`DataTable._visibleRows()`'s `_translationsActivePin()`
-check); turning it off calls `view.clearHighlight()`. Translations are
-the one flag in `_detailState` that is **not** independent per pin —
-by construction there is never more than one pinned point with
-`translations: true` at a time (enforced by the guard above plus the
-auto-clear on 1 → 2 pin described earlier), so `PointLayer`'s
-`_activeGroupKey`/`highlightGroup()` stay a single exclusive piece of
-state — there is never a second group competing to be isolated.
+**Select translations** (`onSelectTranslations(point)`): pins every
+point that shares `point`'s `groupKey` (its `pairId`) through
+`selectPoints`, then turns "Show selected" on, so the whole translation
+group is both selected and the only thing left at full opacity. It is a
+one-shot action, not a toggle: there is no per-pin translations flag,
+and it works with any number of pins. Untick "Show selected" to see the
+rest of the plot again.
 
 **Show/Hide tokens** (`onToggleTokens(point)`): toggles
 `_detailState.get(point.id).tokens`/`tokenPoints`, independently per
@@ -145,27 +127,27 @@ pinned point — any number of pins can have tokens shown at once, each
 rendered in its own pin color via `setTokenOverlays`. Token projection
 only exists in the shared UMAP space (`server.py`'s
 `_get_umap_reducer`), so if the method dropdown isn't already `umap`,
-this flips it and calls `_refresh()` first — which, like any
-`_refresh()` (see below), wipes the *entire* selection — and then
-explicitly re-pins just this one point (`_togglePin(reselected)`) before
-fetching its tokens. This is the **only** path where a `_refresh()` is
-followed by automatic re-pinning; every other refresh trigger just
-resets to an empty selection.
+this flips it and calls `_refresh({ keepState: true })` first, which keeps
+the selection, before fetching its tokens.
 
-**Anything that calls `_refresh()`** (`_loadDataset`, triggered by a
-method/metric dropdown change, **Refit**, or uploading a new dataset):
-full reset. `_selection`, `_focusedId`, `_detailState`, and `_pinColors`
-are all cleared, the canvas ring/isolate and token overlays are cleared,
-and nothing is restored afterward — unless it's the token-overlay
-auto-switch case above, the only deliberate exception.
+**`_refresh()`** (`_loadDataset`) has two modes. Uploading or embedding a
+new dataset is a **full reset**: `_selection`, `_focusedId`,
+`_detailState`, `_pinColors`, the language filter and the table state are
+all cleared. A method/metric dropdown change or **Refit** calls it with
+`keepState: true`; if the point ids are unchanged, the selection, pins,
+language filter, "Show selected" and the table's search/sort/page all
+survive, and only coordinates are refreshed. Token overlays are dropped
+(they were projected into the previous fit), and `PointLayer.setPoints()`
+state is re-applied (`setLangFilter`, `setShowPinnedOnly`, `_syncPins`).
 
 **Independent of the selection entirely** — these never read or modify
 `_selection`/`_detailState`:
 - The **label-on-hover** dropdown (`view.setLabelBy`) — only changes
   what the tooltip shows.
 - The **fisheye lens** toggle and draggable disk (`view.setFisheyeEnabled`)
-  — purely a visual position distortion on the canvas; never affects
-  hit-testing, which always uses real, undistorted positions.
+  — a position distortion on the canvas; while it's on, hover/click
+  hit-testing uses the displaced positions that were last drawn
+  (`PointLayer.pointAtDisplayed`).
 
 ## Two canvas-coloring modes (mutually exclusive)
 
@@ -215,24 +197,17 @@ Token overlay diamonds are drawn in their own pass after all three
 tiers, unaffected by this stratification (they already always render on
 top by virtue of being drawn last).
 
-## Two isolate reasons, one precedence rule
+## The isolate
 
-Two independent things can fade the canvas down to a subset:
-`PointLayer._activeGroupKey` (an active translations isolate) and
-`PointLayer._showPinnedOnly` (the data table's "Show selected"
-checkbox, wired through `App`/`ProjectionView.setShowPinnedOnly`). They
-are **not** combined by union — `_opacityTarget(d)` gives
-`_showPinnedOnly` top precedence, narrowing down to just the pinned
-points even if a translations group is also active, matching how
-`DataTable`'s own `show_selected` filter already narrows whatever rows
-the translations view was showing down to just the pinned ones (see
-"Data table changes" below). With neither isolate active, opacity falls
-back to whichever coloring mode's base opacity applies.
+`PointLayer._showPinnedOnly` (the data table's "Show selected" checkbox,
+wired through `App`/`ProjectionView.setShowPinnedOnly`) fades everything
+that isn't pinned. With it off, opacity falls back to whichever coloring
+mode's base opacity applies.
 
-`ProjectionView._pointAt`'s hit-testing guard generalizes to
+`ProjectionView._pointAt`'s hit-testing guard uses
 `PointLayer.isIsolatedOut(d)` — true whenever `d`'s target opacity would
-currently be `ISOLATED_OUT_OPACITY` for either reason — so a click on a
-point that's invisible for *either* isolate reason correctly falls
+currently be `ISOLATED_OUT_OPACITY` — so a click on a
+point that's invisible because of the isolate correctly falls
 through to the background-click handler instead of silently pinning
 something the user can't see.
 
@@ -242,16 +217,15 @@ One shared component (`client-js/actions-menu.js`'s `renderActionsMenu`,
 a render-a-dropdown-for-this-point-id function, not a class with its own
 selection state — `App`'s `_detailState` is the single source of truth
 it reads from and calls back into). One `Actions ▾` button per pinned
-row opens a checklist popover: Translations, Tokens (omitted if
-`!point.hasTokens`). The dropdown stays open
+row opens a popover: Select translations (an action), Tokens (a checkbox;
+omitted if `!point.hasTokens`). The dropdown stays open
 across multiple clicks inside it (`openMenuId` module-level state in
 `actions-menu.js`) — closing only on an outside click or Escape
 (`installActionsMenuOutsideClickHandler`, installed once in
 `App.init()`) — so toggling more than one action doesn't require
-reopening it each time. "Translations" is greyed out
-(`actions-menu-disabled` styling plus a tooltip) whenever
-`_selection.length !== 1`, matching the guard in `onToggleTranslations`
-above.
+reopening it each time. "Select translations" is greyed out
+(`actions-menu-disabled` styling plus a tooltip) when no other point
+shares the pairId.
 
 ## Data table changes
 
@@ -272,12 +246,6 @@ above.
   handed it), combined with the existing search filter by AND. The same
   checkbox also drives the canvas isolate described above via
   `onToggleShowSelectedOnly`.
-- Translations keep the table's whole-table group filter, unchanged:
-  `_translationsActivePin()` still makes `_visibleRows()` collapse to
-  just that one group while active. This stays correct precisely
-  because translations are restricted to exactly one pinned point —
-  there's never a second group that could also want the table filtered
-  to it.
 
 ## Removed: Selection panel
 

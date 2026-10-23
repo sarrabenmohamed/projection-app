@@ -8,9 +8,8 @@
 // hover) uses a d3.quadtree instead of DOM listeners.
 //
 // Composes three small collaborators (PointLayer, ZoomableAxes, Tooltip) but
-// exposes the same interface App has always used for click-isolate — update()
-// plus highlightParallel/clearHighlight — so that split never had to touch
-// App at all. setLangFilter() is the one new method, driven by LangFilter
+// exposes the interface App has always used — update() plus the setters
+// below — so that split never had to touch App at all. setLangFilter() is the one new method, driven by LangFilter
 // (owned by App, same as the file input and method select).
 
 import { PointLayer } from './point-layer.js';
@@ -75,8 +74,6 @@ export class ProjectionView {
     this.axes.reset();
   }
 
-  highlightParallel(groupKey) { this.pointLayer.highlightGroup(groupKey); }
-  clearHighlight() { this.pointLayer.clear(); }
   setLangFilter(langs) { this.pointLayer.setLangFilter(langs); }
   setFamilyColorMode(enabled) { this.pointLayer.setFamilyColorMode(enabled); }
   getFamilyLegend() { return this.pointLayer.getFamilyLegend(); }
@@ -269,7 +266,7 @@ export class ProjectionView {
   // first; the hit radius is likewise scaled by 1/k so it represents the same
   // on-screen distance at any zoom level.
   //
-  // While an isolate (translations group, or "show pinned only") is
+  // While the "show pinned only" isolate is
   // active, everything outside it is invisible (opacity 0) — the
   // quadtree still spatially indexes those points, so without this check
   // a click/hover could land on a point the user can't see. Treating

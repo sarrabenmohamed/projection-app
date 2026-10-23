@@ -45,10 +45,10 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onToggleTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection, onSelectAll }) {
+  constructor({ containerId }, { onRowClick, onSelectTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection, onSelectAll }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
-    this._onToggleTranslations = onToggleTranslations;
+    this._onSelectTranslations = onSelectTranslations;
     this._onToggleTokens = onToggleTokens;
     this._onToggleShowSelectedOnly = onToggleShowSelectedOnly;
     this._onClearSelection = onClearSelection;
@@ -56,6 +56,7 @@ export class DataTable {
 
     this.points = [];
     this._pins = []; // Array<{point, color, focused, detail}>
+    this._groupSizes = new Map();
     this._highlightedRowId = null; // token-row click only, independent of pins
     // Ephemeral — reset on every setPoints() and never persisted or synced
     // to the canvas: this is just a quick local view narrowing, not a
@@ -130,8 +131,14 @@ export class DataTable {
 
   // Called whenever a new dataset loads — resets every piece of state that
   // only made sense for the previous dataset's points.
+  _indexGroups(points) {
+    this._groupSizes = new Map();
+    for (const p of points) this._groupSizes.set(p.groupKey, (this._groupSizes.get(p.groupKey) || 0) + 1);
+  }
+
   setPoints(points) {
     this.points = points;
+    this._indexGroups(points);
     this._pins = [];
     this.container.querySelector('.dt-clear-selection').disabled = true;
     this._highlightedRowId = null;
@@ -148,6 +155,7 @@ export class DataTable {
   // sort and page.
   updatePoints(points) {
     this.points = points;
+    this._indexGroups(points);
     this._render();
   }
 
@@ -191,10 +199,6 @@ export class DataTable {
     return this._pins.find(p => p.point.id === id);
   }
 
-  _translationsActivePin() {
-    return this._pins.find(p => p.detail.translations) || null;
-  }
-
   _scrollToFocused() {
     const row = this.tbody.querySelector('tr.dt-row-focused');
     if (row) row.scrollIntoView({ block: 'nearest' });
@@ -209,22 +213,17 @@ export class DataTable {
 
   _visibleRows() {
     let rows;
-    const transPin = this._translationsActivePin();
-    if (transPin) {
-      rows = this.points.filter(p => p.groupKey === transPin.point.groupKey);
+    const parsed = parseSearchQuery(this._search);
+    if (!parsed) {
+      rows = this.points;
+    } else if (parsed.key) {
+      const q = parsed.value.toLowerCase();
+      rows = EXACT_MATCH_FILTER_KEYS.has(parsed.key)
+        ? this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase() === q)
+        : this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase().includes(q));
     } else {
-      const parsed = parseSearchQuery(this._search);
-      if (!parsed) {
-        rows = this.points;
-      } else if (parsed.key) {
-        const q = parsed.value.toLowerCase();
-        rows = EXACT_MATCH_FILTER_KEYS.has(parsed.key)
-          ? this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase() === q)
-          : this.points.filter(p => String(p[parsed.key] ?? '').toLowerCase().includes(q));
-      } else {
-        const q = parsed.value.toLowerCase();
-        rows = this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q));
-      }
+      const q = parsed.value.toLowerCase();
+      rows = this.points.filter(p => p.lang.toLowerCase().includes(q) || (p.text || '').toLowerCase().includes(q));
     }
     if (this._showSelectedOnly) {
       const pinnedIds = new Set(this._pins.map(p => p.point.id));
@@ -307,9 +306,9 @@ export class DataTable {
 
     if (pin) {
       const actionsCell = tr.querySelector('.dt-actions-cell');
-      const canTranslate = this._pins.length === 1;
+      const canTranslate = (this._groupSizes.get(p.groupKey) || 0) > 1;
       actionsCell.appendChild(renderActionsMenu(p, pin.detail, canTranslate, {
-        onToggleTranslations: pt => this._onToggleTranslations(pt),
+        onSelectTranslations: pt => this._onSelectTranslations(pt),
         onToggleTokens: pt => this._onToggleTokens(pt),
       }, 'table'));
     }
