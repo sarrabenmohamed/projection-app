@@ -60,14 +60,12 @@ feature (translations, tokens) has something to show.
   Translations are matched by `pairId`; without it only the overall
   numbers are shown. Collapse it with its ▾ button.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
-  — independently toggle its tokens. **Translations** are the one
-  exception: only available while exactly one point is pinned. Tokens
+  — independently toggle its tokens, or **Select translations** to pin
+  every point sharing its `pairId` and isolate the plot to them. Tokens
   overlay that sentence's token embeddings in the same UMAP space
   (auto-switches method to UMAP if needed).
 - **Show selected** (data table) filters the table down to just the
-  pinned rows *and* isolates the plot to just those points — takes
-  precedence over an active translations view rather than combining
-  with it. Also disables the fisheye lens (a lens over an isolated,
+  pinned rows *and* isolates the plot to just those points. Also disables the fisheye lens (a lens over an isolated,
   already-decluttered view isn't useful) until it's turned back off.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   only the selected method's parameters are shown (UMAP: neighbors,
