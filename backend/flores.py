@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
+import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from backend import embedding_pipeline
 from backend.dataset import validate_and_normalize
@@ -52,51 +54,69 @@ def _language_cache_path(data_dir: Path, code: str, model: str, pooling: str) ->
     return data_dir / f"flores_lang_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json"
 
 
-def _read_language_cache(data_dir: Path, code: str, config: dict):
-    """Cached points for one language (first n_sentences of them), or None.
-    FLORES order is fixed, so a cache built for N sentences also serves any
-    smaller request."""
+def _read_language_cache(data_dir: Path, code: str, config: dict) -> list:
+    """Everything cached for one language: sentences 0..k-1, in FLORES order
+    (so a cache built for N sentences also serves any smaller request, and
+    can be extended). Empty if there is no usable cache."""
     path = _language_cache_path(data_dir, code, config["model"], config["pooling"])
     if not path.exists():
-        return None
+        return []
     try:
         cached = json.loads(path.read_text())
     except ValueError:
-        return None
-    points = cached.get("points") or []
-    n = config["n_sentences"]
-    if len(points) < n or points[0].get("tokenVectors") is None:
-        return None
-    return points[:n]
+        return []
+    points = cached.get("points") if isinstance(cached, dict) else None
+    if not points or points[0].get("tokenVectors") is None:  # built before token vectors were kept
+        return []
+    if any(p.get("pairId") != i for i, p in enumerate(points)):  # extending something that isn't a prefix would corrupt it
+        return []
+    return points
+
+
+def _write_language_cache(data_dir: Path, code: str, config: dict, points: list) -> None:
+    """Replaces the language's cache in one step, so an interrupted write
+    can't leave a half-written file behind."""
+    path = _language_cache_path(data_dir, code, config["model"], config["pooling"])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        scratch.write_text(json.dumps({"model": config["model"], "pooling": config["pooling"], "lang": code, "points": points}))
+        os.replace(scratch, path)
+    finally:
+        scratch.unlink(missing_ok=True)
 
 
 def load_or_build_dataset(config: dict, builder: Callable, data_dir: Path) -> dict:
-    """Embeds only the languages missing from the per-language cache.
-    builder(lang_codes, n_sentences, model_name, pooling) -> dataset dict."""
-    by_lang = {}
-    missing = []
-    for code in config["lang_codes"]:
-        points = _read_language_cache(data_dir, code, config)
-        if points is None:
-            missing.append(code)
-        else:
-            by_lang[code] = points
+    """Embeds only what the per-language cache lacks: whole languages that
+    were never embedded, and the later sentences of languages cached for
+    fewer sentences than requested.
+    builder(lang_codes, n_sentences, model_name, pooling, start=0) -> dataset
+    dict with sentences start..n_sentences-1 of each language."""
+    n = config["n_sentences"]
+    cached = {code: _read_language_cache(data_dir, code, config) for code in config["lang_codes"]}
 
-    if missing:
-        built = builder(missing, config["n_sentences"], config["model"], config["pooling"])
-        data_dir.mkdir(parents=True, exist_ok=True)
-        for code in missing:
-            points = [p for p in built["points"] if p["lang"] == code]
-            by_lang[code] = points
-            _language_cache_path(data_dir, code, config["model"], config["pooling"]).write_text(
-                json.dumps({"model": config["model"], "pooling": config["pooling"], "lang": code, "points": points})
-            )
+    # Languages needing the same sentences are built together, loading the model once per group.
+    groups = {}
+    for code, points in cached.items():
+        if len(points) < n:
+            groups.setdefault(len(points), []).append(code)
 
-    points = [p for code in config["lang_codes"] for p in by_lang[code]]
+    for have, codes in sorted(groups.items()):
+        built = builder(codes, n, config["model"], config["pooling"], start=have)
+        for code in codes:
+            cached[code] = cached[code] + [p for p in built["points"] if p["lang"] == code]
+            _write_language_cache(data_dir, code, config, cached[code])
+
     return {
         "model": config["model"], "layer": "last", "pooling": config["pooling"],
-        "lang_codes": config["lang_codes"], "points": points,
+        "lang_codes": config["lang_codes"],
+        "points": [p for code in config["lang_codes"] for p in cached[code][:n]],
     }
+
+
+class LoadedFlores(NamedTuple):
+    dataset: dict
+    source: dict  # what DatasetStore.replace/revise record: {"kind": "flores", "n_sentences": n}
 
 
 class FloresLoader:
@@ -110,7 +130,7 @@ class FloresLoader:
         self._build = build
         self._cancel = threading.Event()
 
-    def load(self, raw: dict) -> dict:
+    def load(self, raw: dict) -> LoadedFlores:
         """Raises ValueError for a bad request, UnknownLanguageError for a code
         FLORES doesn't have, EmbeddingCancelled if cancel() (or a newer load)
         stopped it."""
@@ -118,13 +138,13 @@ class FloresLoader:
         self._cancel.set()  # a newer load supersedes one still running
         cancel = self._cancel = threading.Event()
 
-        def builder(*args):
-            return self._build(*args, should_cancel=cancel.is_set)
+        def builder(*args, **kwargs):
+            return self._build(*args, should_cancel=cancel.is_set, **kwargs)
 
         built = load_or_build_dataset(config, builder, self.data_dir)
         if cancel.is_set():
             raise embedding_pipeline.EmbeddingCancelled()
-        return validate_and_normalize(built)
+        return LoadedFlores(validate_and_normalize(built), {"kind": "flores", "n_sentences": config["n_sentences"]})
 
     def cancel(self) -> None:
         """Stops the running load at its next sentence; harmless when idle."""

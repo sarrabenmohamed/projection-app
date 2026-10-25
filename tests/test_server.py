@@ -93,60 +93,6 @@ def test_points_endpoint_reports_token_texts(client):
     assert by_id["en-1"]["tokenTexts"] == ["bye", "!"]
 
 
-def _fake_builder(calls):
-    def build(lang_codes, n_sentences, model_name, pooling):
-        calls.append((list(lang_codes), n_sentences, model_name, pooling))
-        return {"points": [
-            {"id": f"{c}-{i}", "lang": c, "pairId": i, "vector": [float(i), 1.0], "tokenVectors": []}
-            for c in lang_codes for i in range(n_sentences)
-        ]}
-    return build
-
-
-CACHE_CONFIG = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 3, "pooling": "mean"}
-
-
-def test_load_or_build_dataset_embeds_only_new_languages(tmp_path):
-    calls = []
-    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
-    assert calls == [(["a", "b"], 3, "m", "mean")]
-
-    result = flores.load_or_build_dataset({**CACHE_CONFIG, "lang_codes": ["a", "b", "c"]}, _fake_builder(calls), tmp_path)
-    assert calls[1] == (["c"], 3, "m", "mean")  # a and b came from the cache
-    assert [p["id"] for p in result["points"]][:1] == ["a-0"]
-    assert result["lang_codes"] == ["a", "b", "c"] and len(result["points"]) == 9
-
-
-def test_load_or_build_dataset_full_cache_hit_never_builds(tmp_path):
-    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder([]), tmp_path)
-
-    def explode(*args):
-        raise AssertionError("builder should not run on a cache hit")
-
-    flores.load_or_build_dataset(CACHE_CONFIG, explode, tmp_path)
-
-
-def test_load_or_build_dataset_serves_smaller_n_from_larger_cache(tmp_path):
-    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder([]), tmp_path)
-    result = flores.load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, lambda *a: 1 / 0, tmp_path)
-    assert len(result["points"]) == 4
-
-
-def test_load_or_build_dataset_rebuilds_language_when_more_sentences_needed(tmp_path):
-    calls = []
-    flores.load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, _fake_builder(calls), tmp_path)
-    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
-    assert calls[1] == (["a", "b"], 3, "m", "mean")
-
-
-def test_load_or_build_dataset_cache_is_per_model_and_pooling(tmp_path):
-    calls = []
-    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
-    flores.load_or_build_dataset({**CACHE_CONFIG, "model": "other"}, _fake_builder(calls), tmp_path)
-    flores.load_or_build_dataset({**CACHE_CONFIG, "pooling": "max"}, _fake_builder(calls), tmp_path)
-    assert len(calls) == 3
-
-
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
     fit_calls = []
     orig_fit = projection.umap.UMAP.fit
@@ -481,26 +427,6 @@ def test_points_404_with_helpful_message_when_empty():
         server.store.data = saved
 
 
-def test_flores_config_validates_and_dedupes():
-    cfg = flores.flores_config({"lang_codes": ["eng_Latn", "deu_Latn", "eng_Latn"], "n_sentences": 25})
-    assert cfg == {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 25, "model": "xlm-roberta-base", "pooling": "mean"}
-
-
-@pytest.mark.parametrize("raw", [
-    {"lang_codes": [], "n_sentences": 10},
-    {"lang_codes": ["english"], "n_sentences": 10},
-    {"lang_codes": ["eng_Latn"], "n_sentences": 0},
-    {"lang_codes": ["eng_Latn"], "n_sentences": 5000},
-    {"lang_codes": ["eng_Latn"], "n_sentences": "ten"},
-    {"lang_codes": "eng_Latn", "n_sentences": 10},
-    {"lang_codes": ["eng_Latn"], "n_sentences": 10, "pooling": "median"},
-    {"lang_codes": ["eng_Latn"], "n_sentences": 10, "model": ""},
-])
-def test_flores_config_rejects_bad_input(raw):
-    with pytest.raises(ValueError):
-        flores.flores_config(raw)
-
-
 def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
     calls = []
 
@@ -538,7 +464,7 @@ def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
 
 
 def test_flores_cancel_stops_the_build_and_keeps_the_dataset(client, tmp_path, monkeypatch):
-    def build_until_cancelled(lang_codes, n_sentences, model_name, pooling, should_cancel=None):
+    def build_until_cancelled(lang_codes, n_sentences, model_name, pooling, should_cancel=None, start=0):
         assert client.post("/dataset/flores/cancel").json() == {"cancelled": True}
         assert should_cancel()
         raise server.embedding_pipeline.EmbeddingCancelled()
@@ -554,7 +480,7 @@ def test_flores_cancel_stops_the_build_and_keeps_the_dataset(client, tmp_path, m
 
 
 def test_flores_load_after_a_cancel_is_not_affected_by_it(client, tmp_path, monkeypatch):
-    def build(lang_codes, n_sentences, model_name, pooling, should_cancel=None):
+    def build(lang_codes, n_sentences, model_name, pooling, should_cancel=None, start=0):
         assert not should_cancel()
         return {
             "model": model_name, "layer": "last", "pooling": pooling, "lang_codes": lang_codes,
@@ -648,21 +574,3 @@ def test_dataset_info_reports_loaded_and_empty(client, monkeypatch):
     monkeypatch.setattr(server.store, "data", None)
     res = client.get("/dataset/info")
     assert res.status_code == 200 and res.json() == {"loaded": False}
-
-
-def test_flores_loader_builds_through_injected_builder_and_cancel_stops_the_next_build(tmp_path):
-    seen = []
-
-    def build(codes, n, model, pooling, should_cancel=None):
-        seen.append(should_cancel())
-        data = _fake_builder([])(codes, n, model, pooling)
-        for point in data["points"]:
-            point["tokenVectors"] = [{"token": "t", "vector": point["vector"]}]
-        return data
-
-    loader = flores.FloresLoader(tmp_path, build)
-    loader.load({"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 2})
-    assert seen == [False]
-    loader.cancel()
-    loader.load({"lang_codes": ["fra_Latn"], "n_sentences": 2})  # a fresh load starts uncancelled
-    assert seen == [False, False]

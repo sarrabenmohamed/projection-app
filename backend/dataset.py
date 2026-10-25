@@ -4,10 +4,26 @@ satisfy before it is accepted."""
 from __future__ import annotations
 
 import math
+import threading
+from typing import NamedTuple
 
 
 class NoDatasetError(LookupError):
     """Nothing has been loaded yet."""
+
+
+class DatasetChangedError(Exception):
+    """The dataset was replaced while an edit of the previous one was running."""
+
+
+UPLOADED = {"kind": "upload"}
+
+
+class Snapshot(NamedTuple):
+    """The dataset, where it came from, and its generation, as they were at one moment."""
+    data: dict
+    source: dict
+    generation: int
 
 
 def _is_finite_vector(value, dim) -> bool:
@@ -28,9 +44,13 @@ def validate_and_normalize(raw: dict) -> dict:
     first_vector = points[0].get("vector")
     dim = raw.get("dim") or (len(first_vector) if isinstance(first_vector, list) else None)
 
+    seen_ids = set()
     for i, p in enumerate(points):
         if not isinstance(p.get("id"), (str, int, float)):
             raise ValueError(f'points[{i}] is missing a valid "id"')
+        if p["id"] in seen_ids:
+            raise ValueError(f'points[{i}].id {p["id"]!r} is a duplicate; every point needs its own id')
+        seen_ids.add(p["id"])
         if not isinstance(p.get("lang"), str):
             raise ValueError(f'points[{i}] is missing a valid "lang"')
         if "family" in p and (not isinstance(p["family"], str) or not p["family"].strip()):
@@ -67,17 +87,40 @@ def validate_and_normalize(raw: dict) -> dict:
 
 
 class DatasetStore:
-    """Holds the current dataset. `generation` increases on every replacement,
-    so anything cached from an older dataset can tell it is stale."""
+    """Holds the current dataset and where it came from (`source`: an upload,
+    or a FLORES-200 subset with its sentence count).
+
+    `generation` increases whenever the dataset is replaced, so anything
+    cached from an older one (a projection layout) can tell it is stale.
+    Revising — adding or removing points of the same dataset — keeps it, so
+    that layout stays valid and the points can be placed into it."""
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.data = None
+        self.source = None
         self.generation = 0
 
-    def replace(self, data: dict) -> dict:
-        self.data = data
-        self.generation += 1
+    def replace(self, data: dict, source: dict = UPLOADED) -> dict:
+        with self._lock:
+            self.data, self.source = data, source
+            self.generation += 1
         return self.summary()
+
+    def revise(self, data: dict, source: dict, *, based_on_generation: int) -> dict:
+        """Swaps in an edited version of the dataset that was current at
+        `based_on_generation`; DatasetChangedError if it was replaced since."""
+        with self._lock:
+            self.current()
+            if self.generation != based_on_generation:
+                raise DatasetChangedError("The dataset was replaced while it was being edited")
+            self.data, self.source = data, source
+        return self.summary()
+
+    def snapshot(self) -> Snapshot:
+        """The current dataset with its source and generation, consistent with each other."""
+        with self._lock:
+            return Snapshot(self.current(), self.source, self.generation)
 
     def current(self) -> dict:
         if self.data is None:
@@ -86,4 +129,4 @@ class DatasetStore:
 
     def summary(self) -> dict:
         d = self.current()
-        return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"]}
+        return {"n_points": len(d["points"]), "lang_codes": d["lang_codes"], "dim": d["dim"], "source": self.source}

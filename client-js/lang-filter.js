@@ -21,12 +21,13 @@ export class LangFilter {
     this.input.addEventListener('blur', () => setTimeout(() => this._hideSuggestions(), 150));
   }
 
-  // Called whenever a new dataset loads — resets the selection (a filter
-  // from the old dataset's language set wouldn't mean anything for the new
-  // one) and refreshes what's searchable.
-  setLangs(allLangs) {
+  // Called whenever a dataset loads — resets the selection (a filter from
+  // the old dataset's language set wouldn't mean anything for the new one)
+  // and refreshes what's searchable. After an edit of the same dataset,
+  // keepSelection keeps the chosen languages that are still in it.
+  setLangs(allLangs, { keepSelection = false } = {}) {
     this.allLangs = [...allLangs].sort();
-    this.selected = new Set();
+    this.selected = keepSelection ? new Set([...this.selected].filter(lang => this.allLangs.includes(lang))) : new Set();
     this.input.value = '';
     this._renderChips();
     this._hideSuggestions();

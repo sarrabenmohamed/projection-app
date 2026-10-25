@@ -1,6 +1,7 @@
 """Browser tests: a real uvicorn server plus headless Chromium. Skipped when
 Playwright or its browser isn't installed (pip install -r requirements-dev.txt
 && playwright install chromium)."""
+import contextlib
 import socket
 import subprocess
 import sys
@@ -22,11 +23,12 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture(scope="session")
-def server_url():
+@contextlib.contextmanager
+def run_server(*uvicorn_args):
+    """A uvicorn server on a free port, run from the repo root; yields its URL."""
     port = _free_port()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "server:app", "--port", str(port), "--log-level", "warning"],
+        [sys.executable, "-m", "uvicorn", *uvicorn_args, "--port", str(port), "--log-level", "warning"],
         cwd=ROOT,
     )
     url = f"http://127.0.0.1:{port}"
@@ -45,6 +47,19 @@ def server_url():
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def server_url():
+    with run_server("server:app") as url:
+        yield url
+
+
+@pytest.fixture(scope="module")
+def fake_server_url():
+    """The app with a fake embedder (see fake_server.py), for tests that load FLORES-200 data."""
+    with run_server("--app-dir", "tests/e2e", "fake_server:app") as url:
+        yield url
 
 
 @pytest.fixture(scope="session")

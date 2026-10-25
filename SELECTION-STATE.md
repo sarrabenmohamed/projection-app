@@ -126,19 +126,27 @@ rest of the plot again.
 pinned point — any number of pins can have tokens shown at once, each
 rendered in its own pin color via `setTokenOverlays`. Token projection
 only exists in the shared UMAP space (`backend/projection.py`'s
-`Projector._umap_reducer`), so if the method dropdown isn't already `umap`,
+`Projector.project_tokens`, through the current UMAP fit), so if the method dropdown isn't already `umap`,
 this flips it and calls `_refresh({ keepState: true })` first, which keeps
 the selection, before fetching its tokens.
 
 **`_refresh()`** (`_loadDataset`) has two modes. Uploading or embedding a
 new dataset is a **full reset**: `_selection`, `_focusedId`,
 `_detailState`, `_pinColors`, the language filter and the table state are
-all cleared. A method/metric dropdown change or **Refit** calls it with
-`keepState: true`; if the point ids are unchanged, the selection, pins,
-language filter, "Show selected" and the table's search/sort/page all
-survive, and only coordinates are refreshed. Token overlays are dropped
-(they were projected into the previous fit), and `PointLayer.setPoints()`
-state is re-applied (`setLangFilter`, `setShowPinnedOnly`, `_syncPins`).
+all cleared. A method/metric dropdown change, **Refit**, or an **Update
+dataset** edit of the loaded FLORES-200 dataset calls it with
+`keepState: true`; as long as some of the previous points are still there,
+the selection, pins, language filter, "Show selected" and the table's
+search/sort/page all survive, and only coordinates are refreshed. After an
+edit, the pins (with their token overlays, colours and focus) and the
+chosen languages of points that are gone are dropped
+(`_dropVanishedPins`, `LangFilter.setLangs(..., { keepSelection: true })`),
+and languages and families that were coloured before keep their colours
+(`PointLayer`'s `stableColorScale`; a fresh dataset colours from scratch).
+Token overlays survive only while the backend's `fit_id` is unchanged — a
+re-projection that refits, or t-SNE, drops them since they were projected
+into the previous fit — and `PointLayer.setPoints()` state is re-applied
+(`setLangFilter`, `setShowPinnedOnly`, `_syncPins`).
 
 **Independent of the selection entirely** — these never read or modify
 `_selection`/`_detailState`:

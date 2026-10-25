@@ -21,6 +21,10 @@
       <input type="file" id="file-input" accept=".json,.jsonl,.ndjson,.csv,.tsv,application/json">
       <details id="flores-controls">
         <summary>Or embed FLORES-200 sentences</summary>
+        <div id="flores-mode" class="segmented" role="group" aria-label="What to do with the loaded FLORES-200 dataset" hidden>
+          <button type="button" data-mode="edit" data-tip="Add or remove languages and sentences. Only what's new is embedded, and the points already on the plot keep their positions.">Edit loaded</button>
+          <button type="button" data-mode="load" data-tip="Embed a different selection (or model) from scratch and recompute the whole projection.">Load new</button>
+        </div>
         <label for="flores-langs">Languages (comma-separated FLORES-200 codes):</label>
         <textarea id="flores-langs" rows="2" spellcheck="false">eng_Latn, deu_Latn, fra_Latn, zho_Hans, arb_Arab</textarea>
         <label for="flores-n">Sentences per language (1&ndash;1012):</label>
@@ -33,7 +37,9 @@
           <option value="max">max</option>
           <option value="cls">cls</option>
         </select>
+        <div id="flores-diff" class="param-hint" hidden></div>
         <button type="button" id="flores-load-button">Load FLORES-200</button>
+        <div id="flores-hint" class="param-hint"></div>
         <div id="flores-error" class="error-msg" role="alert" hidden></div>
       </details>
       <div id="format-help">
@@ -138,6 +144,10 @@
       <div class="param-hint">Select an area: right-drag (or Ctrl+drag) on the plot.</div>
     </div>
     <div id="status">Loading...</div>
+    <div id="overlay-note" hidden>
+      <span id="overlay-note-text"></span>
+      <button type="button" id="overlay-refit" data-tip="Fit the projection on every point again. Points may move.">Refit</button>
+    </div>
 
     <div id="lang-filter-controls">
       <label for="color-mode-select">Color points by:</label>

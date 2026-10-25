@@ -8,7 +8,7 @@
 //   hover labels still say which is which.
 // - 'family': every point is colored by its language's linguistic family.
 //   `family` is a field the backend already attaches to every point
-//   (server.py's family_of()), not something this class computes.
+//   (backend/languages.py's point_family()), not something this class computes.
 // - 'custom': the language-filter behavior. Every point is neutral gray
 //   by default; only languages explicitly selected via the language filter
 //   get a real color, and everything else dims to context.
@@ -83,6 +83,23 @@ function _fisheyeOffset(dx, dy, radius, distortion, style) {
     : _fisheyeOffsetD3(dx, dy, radius, distortion);
 }
 
+// An ordinal color scale over `values` (sorted) whose colors survive the set
+// of values changing, so editing a dataset never recolors the points already
+// on screen: a value colored before keeps its color (even if it was gone for
+// a while), and new values take the next unused ones. `indexes` (value ->
+// palette index) is what to pass back as `previous` next time; with nothing
+// previous this is just d3.scaleOrdinal(sortedValues, palette).
+function stableColorScale(values, palette, previous = new Map()) {
+  const indexes = new Map(previous);
+  let next = previous.size ? Math.max(...previous.values()) + 1 : 0;
+  const sorted = [...values].sort();
+  for (const value of sorted) {
+    if (!indexes.has(value)) indexes.set(value, next++);
+  }
+  const scale = d3.scaleOrdinal(sorted, sorted.map(value => palette[indexes.get(value) % palette.length]));
+  return { scale, indexes };
+}
+
 // Token diamonds are larger than sentence circles, a lightened pin color
 // with a dark outline, so they read as a different kind of mark.
 const TOKEN_SIZE_FACTOR = 1.6;
@@ -102,6 +119,8 @@ export class PointLayer {
     this._colorMode = 'language'; // a view preference, not per-dataset — setPoints() below doesn't reset it
     this._familyColorScale = null;
     this._languageColorScale = null;
+    this._familyColorIndexes = new Map();
+    this._languageColorIndexes = new Map();
     this._showPinnedOnly = false;
     this.dims = 2;
     this._yaw = DEFAULT_YAW;     // view preferences too: a reprojection keeps the rotation
@@ -110,9 +129,11 @@ export class PointLayer {
     this.radius = 1;             // 3D: farthest distance from _center, sets the screen scale
   }
 
+  // keepColors: the points are an edited version of the current ones, so
+  // languages and families that were already colored keep their colors.
   // Scales are set separately because a 3D set's screen scale depends on the
   // radius that setPoints() computes.
-  setPoints(points) {
+  setPoints(points, { keepColors = false } = {}) {
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
@@ -120,10 +141,12 @@ export class PointLayer {
     this._showPinnedOnly = false;
     this._displayPositions = null;
     this.points = points.map(p => ({ ...p, opacity: 1 }));
-    const families = Array.from(new Set(this.points.map(p => p.family))).sort();
-    this._familyColorScale = d3.scaleOrdinal(families, FAMILY_COLORS);
-    const langs = Array.from(new Set(this.points.map(p => p.lang))).sort();
-    this._languageColorScale = d3.scaleOrdinal(langs, LANG_COLORS);
+    const families = stableColorScale(new Set(this.points.map(p => p.family)), FAMILY_COLORS, keepColors ? this._familyColorIndexes : undefined);
+    this._familyColorScale = families.scale;
+    this._familyColorIndexes = families.indexes;
+    const langs = stableColorScale(new Set(this.points.map(p => p.lang)), LANG_COLORS, keepColors ? this._languageColorIndexes : undefined);
+    this._languageColorScale = langs.scale;
+    this._languageColorIndexes = langs.indexes;
 
     this.dims = this.points.length && this.points[0].z !== undefined ? 3 : 2;
     if (this.dims === 3) {
@@ -457,8 +480,9 @@ export class PointLayer {
     ctx.fillStyle = this._colorFor(d);
     ctx.fill();
     ctx.globalAlpha = alpha;
-    ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
-    ctx.strokeStyle = hovered ? '#333' : '#fff';
+    // A dark outline marks the points that were placed into the layout rather than fitted with it.
+    ctx.lineWidth = (hovered ? 1.5 : d.overlaid ? 1 : 0.5) / transform.k;
+    ctx.strokeStyle = hovered ? '#333' : d.overlaid ? '#555' : '#fff';
     ctx.stroke();
     const pin = this._pinsById.get(d.id);
     if (pin) {

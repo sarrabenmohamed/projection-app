@@ -6,6 +6,7 @@
 import { ProjectionView } from './projection-view.js';
 import { BackendClient } from './backend-client.js';
 import { DataTable } from './data-table.js';
+import { FloresPanel } from './flores-panel.js';
 import { LangFilter } from './lang-filter.js';
 import { installTooltips } from './help-tips.js';
 import { StatsView } from './stats-view.js';
@@ -38,7 +39,10 @@ class App {
       { inputId: 'lang-search', suggestionsId: 'lang-suggestions', chipsId: 'lang-chips' },
       selected => this.view.setLangFilter(selected)
     );
+    this.floresPanel = new FloresPanel(request => this._onFloresRequest(request));
     this.points = [];
+    this._fitId = null;             // which UMAP fit the plotted layout came from (token overlays are only valid within one)
+    this._overlaidCount = 0;        // points placed into the layout rather than fitted
     this._selection = [];           // ordered array of pinned ids, insertion order
     this._focusedId = null;
     this._detailState = new Map();  // id -> {tokens, tokenPoints}
@@ -52,8 +56,6 @@ class App {
 
     document.getElementById('file-input')
       .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
-    document.getElementById('flores-load-button')
-      .addEventListener('click', () => this._onLoadFlores());
     document.getElementById('method-select')
       .addEventListener('change', () => { this._syncParamVisibility(); this._refresh({ keepState: true }); });
     this._syncParamVisibility();
@@ -67,7 +69,9 @@ class App {
     // then clobber a value the user typed into another field afterward.
     // Refit is the one explicit trigger for all of them.
     document.getElementById('refit-button')
-      .addEventListener('click', () => this._refresh({ keepState: true }));
+      .addEventListener('click', () => this._refit());
+    document.getElementById('overlay-refit')
+      .addEventListener('click', () => this._refit());
     document.getElementById('label-select')
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
@@ -288,23 +292,17 @@ class App {
     el.classList.toggle('error', isError);
   }
 
-  // Asks the backend to embed the chosen FLORES-200 subset (or serve it from
-  // its cache) and then runs the same fetch-points-and-project flow every
-  // other dataset change goes through. The file input is cleared so
-  // re-picking the same file still fires a change event.
-  async _onLoadFlores() {
-    const lang_codes = document.getElementById('flores-langs').value
-      .split(/[\s,;]+/).filter(Boolean);
-    const config = {
-      lang_codes,
-      n_sentences: parseInt(document.getElementById('flores-n').value, 10),
-      model: document.getElementById('flores-model').value.trim(),
-      pooling: document.getElementById('flores-pooling').value,
-    };
-    const button = document.getElementById('flores-load-button');
-    const errorBox = document.getElementById('flores-error');
-    errorBox.hidden = true;
-    button.disabled = true;
+  // Asks the backend to embed the requested FLORES-200 subset (or serve it
+  // from its cache), then runs the same fetch-points-and-project flow every
+  // other dataset change goes through. "edit" changes the loaded dataset and
+  // keeps the plot's state (its new points are placed into the layout);
+  // "load" replaces it. The file input is cleared so re-picking the same file
+  // still fires a change event.
+  async _onFloresRequest({ mode, config }) {
+    const editing = mode === 'edit';
+    const verb = editing ? 'update' : 'load';
+    this.floresPanel.clearError();
+    this.floresPanel.setBusy(true);
     // Aborting the request frees the UI at once; the backend call stops the
     // embedding job itself at its next sentence.
     const controller = new AbortController();
@@ -312,34 +310,37 @@ class App {
       controller.abort();
       this.backend.cancelFlores().catch(() => {});
     };
-    this._setLoading(true, `Embedding ${lang_codes.length} languages × ${config.n_sentences} sentences (first run can take minutes)...`, cancel);
+    const size = `${config.lang_codes.length} languages × ${config.n_sentences} sentences`;
+    this._setLoading(true, editing ? `Updating the dataset to ${size} (only what's new is embedded)...` : `Embedding ${size} (first run can take minutes)...`, cancel);
     try {
-      await this.backend.loadFlores(config, controller.signal);
+      await (editing ? this.backend.updateFlores(config, controller.signal) : this.backend.loadFlores(config, controller.signal));
     } catch (err) {
       this._setLoading(false);
-      button.disabled = false;
+      this.floresPanel.setBusy(false);
       if (err.name === 'AbortError') {
-        this._setStatus('FLORES-200 load cancelled.');
+        this._setStatus(`FLORES-200 ${verb} cancelled.`);
         return;
       }
-      errorBox.textContent = err.message;
-      errorBox.hidden = false;
-      this._setStatus('FLORES-200 load failed.', true);
+      this.floresPanel.showError(err.message);
+      this._setStatus(`FLORES-200 ${verb} failed.`, true);
       return;
     }
-    button.disabled = false;
+    this.floresPanel.setBusy(false);
     this._setLoading(false);
     document.getElementById('file-input').value = '';
-    this._refresh();
+    this._refresh({ keepState: editing });
   }
 
-  // keepState is for re-projecting the dataset that's already loaded (method,
-  // metric, params): selection, pins and the language colouring survive.
-  // Loading a different dataset always starts clean.
-  async _refresh({ keepState = false } = {}) {
+  // keepState is for the dataset that's already loaded, re-projected (method,
+  // metric, params) or edited (languages, sentences): selection, pins and the
+  // language colouring survive for the points still there. Loading a
+  // different dataset always starts clean. refit fits UMAP on every point
+  // again instead of placing the points added since the last fit into its layout.
+  async _refresh({ keepState = false, refit = false } = {}) {
     const method = document.getElementById('method-select').value;
     const metric = document.getElementById('metric-select').value;
     const hyperparams = { ...(method === 'umap' ? this._umapParams() : this._tsneParams()), n_components: this._is3D() ? 3 : 2 };
+    if (refit) hyperparams.refit = true;
     this._setStatus(`Running ${method} (${metric})...`);
     this._setLoading(true, `Running ${method} (${metric})...`);
 
@@ -368,16 +369,20 @@ class App {
     const hint = document.getElementById('projection-hint');
     if (hint) hint.remove();
 
-    // Only trust keepState if it really is the same set of points.
-    const sameDataset = keepState
-      && meta.points.length === this.points.length
-      && meta.points.every((p, i) => p.id === this.points[i].id);
+    // keepState only holds for the same dataset (re-projected or edited), which
+    // still has some of the points.
+    const previousIds = new Set(this.points.map(p => p.id));
+    const keep = keepState && meta.points.some(p => previousIds.has(p.id));
+    let droppedPins = false;
 
-    if (sameDataset) {
-      // Token points were projected into the previous fit's space.
-      for (const detail of this._detailState.values()) {
-        detail.tokens = false;
-        detail.tokenPoints = [];
+    if (keep) {
+      droppedPins = this._dropVanishedPins(new Set(meta.points.map(p => p.id)));
+      if (proj.fit_id == null || proj.fit_id !== this._fitId) {
+        // Token points were projected into the previous fit's space.
+        for (const detail of this._detailState.values()) {
+          detail.tokens = false;
+          detail.tokenPoints = [];
+        }
       }
     } else {
       this._selection = [];
@@ -398,12 +403,16 @@ class App {
         hasTokens: p.hasTokens, tokenTexts: p.tokenTexts,
         // no pairId at all -> each point is its own group, so it isolates alone
         groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
-        x: c.x, y: c.y, z: c.z,
+        x: c.x, y: c.y, z: c.z, overlaid: Boolean(c.overlaid),
       };
     });
+    this._fitId = proj.fit_id;
+    this._overlaidCount = proj.n_overlaid || 0;
 
     document.getElementById('status').textContent =
-      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}`;
+      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}${this._overlaidCount ? ` · ${this._overlaidCount} overlaid` : ''}`;
+    this._renderOverlayNote(meta.points.length);
+    this.floresPanel.setDataset(meta);
 
     // The backend clamps out-of-range hyperparams (e.g. n_neighbors/perplexity
     // past the dataset's point count) — reflect whatever it actually used back
@@ -418,13 +427,15 @@ class App {
       }
     }
 
-    if (sameDataset) {
+    if (keep) {
+      this.langFilter.setLangs(meta.lang_codes, { keepSelection: true });
       this.table.updatePoints(this.points);
-      this.view.update(this.points, d => this.onCanvasClickPoint(d));
+      this.view.update(this.points, d => this.onCanvasClickPoint(d), { keepColors: true });
       // PointLayer.setPoints() resets its own per-dataset state; re-apply it.
       this.view.setLangFilter(this.langFilter.getSelected());
       this.view.setShowPinnedOnly(this.table.isShowSelectedOnly());
       this._syncPins();
+      if (droppedPins) this._refreshStats();
     } else {
       this.langFilter.setLangs(meta.lang_codes);
       this.table.setPoints(this.points);
@@ -449,6 +460,40 @@ class App {
       item.appendChild(document.createTextNode(label));
       el.appendChild(item);
     }
+  }
+
+  // Tells the user that some points were placed into the existing layout
+  // rather than fitted with the rest, and offers the refit that includes them.
+  _renderOverlayNote(total) {
+    const overlaid = this._overlaidCount;
+    document.getElementById('overlay-note').hidden = overlaid === 0;
+    if (overlaid === 0) return;
+    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it, so nothing already on the plot moved.`;
+    if (overlaid > total - overlaid) text += ' Most points are overlaid now; a refit gives a more faithful layout.';
+    document.getElementById('overlay-note-text').textContent = text;
+  }
+
+  // Fits the projection on every point again, with the current settings.
+  // Only forced when points were overlaid; otherwise the backend refits
+  // exactly when a setting changed.
+  _refit() {
+    return this._refresh({ keepState: true, refit: this._overlaidCount > 0 });
+  }
+
+  // After an edit: forgets the pins (and their tokens, colours, focus) of
+  // points that are no longer in the dataset. True if there were any.
+  _dropVanishedPins(presentIds) {
+    const before = this._selection.length;
+    this._selection = this._selection.filter(id => presentIds.has(id));
+    for (const id of [...this._detailState.keys()]) {
+      if (presentIds.has(id)) continue;
+      this._detailState.delete(id);
+      this._pinColors.delete(id);
+    }
+    if (!presentIds.has(this._focusedId)) {
+      this._focusedId = this._selection.length ? this._selection[this._selection.length - 1] : null;
+    }
+    return this._selection.length !== before;
   }
 
   // Rebuilds every consumer's view of the pinned set from scratch each
@@ -599,7 +644,7 @@ class App {
   }
 
   // Tokens are independent per pinned point. Token projection only exists
-  // in the shared UMAP space (see server.py's _get_umap_reducer), so if
+  // in the shared UMAP space (see backend/projection.py), so if
   // the main view is on t-SNE this switches it to UMAP first — that runs
   // _refresh({ keepState: true }), which keeps the selection (token points
   // from the old fit are dropped).
