@@ -36,10 +36,6 @@ export class BackendClient {
     return this._request(`/project/tokens/${encodeURIComponent(id)}?${params}`);
   }
 
-  fetchNeighbors(id, k, metric) {
-    return this._request(`/neighbors/${encodeURIComponent(id)}?k=${k}&metric=${metric}`);
-  }
-
   fetchStats(ids) {
     return this._request('/stats', {
       method: 'POST',
@@ -54,14 +50,6 @@ export class BackendClient {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
       body: text,
-    });
-  }
-
-  postDataset(raw) {
-    return this._request('/dataset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(raw),
     });
   }
 

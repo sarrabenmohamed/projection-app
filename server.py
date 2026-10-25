@@ -5,12 +5,11 @@ static frontend: uvicorn server:app --port 8500
 
 Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
-    POST /dataset/reset           reload the default FLORES-200 dataset, discarding whatever's loaded.
+    POST /dataset/upload          load a JSON, JSONL or CSV file (?format=).
     GET  /points                  point metadata only, no vectors (includes each point's language family).
     POST /dataset/flores          embed (or load from cache) a FLORES-200 subset; POST /dataset/flores/cancel stops it.
     GET  /project                 2D (or 3D, ?n_components=3) coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
     GET  /project/tokens/{id}     coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist=/n_components= must match).
-    GET  /neighbors/{id}          nearest neighbors by full-vector distance (?k=&metric=).
     POST /stats                   aggregate cosine/alignment statistics for a set of selected point ids.
 """
 
@@ -51,7 +50,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import umap
 from sklearn.manifold import TSNE
-from sklearn.metrics import pairwise_distances
 
 import embedding_pipeline
 from dataset_formats import parse_dataset_text
@@ -79,10 +77,6 @@ def _glottolog_data() -> dict:
         return {"families": data["families"], "aliases": data.get("aliases", {})}
     except (OSError, ValueError, KeyError):
         return {"families": {}, "aliases": {}}
-
-
-def _glottolog_families() -> dict:
-    return _glottolog_data()["families"]
 
 
 def _lookup_family(lang_code: str) -> Optional[str]:
@@ -440,36 +434,6 @@ def project(
         "params": params,
         "n_components": n_components,
         "points": [{"id": p["id"], **_coords_dict(coords[i])} for i, p in enumerate(points)],
-    }
-
-
-@app.get("/neighbors/{point_id}")
-def neighbors(
-    point_id: str,
-    k: int = Query(default=5, ge=1, le=100),
-    metric: Metric = "euclidean",
-) -> dict:
-    """Nearest neighbors by distance in the full embedding space (not the 2D
-    projection) — independent of whatever method/metric the plot is using."""
-    d = _current_dataset()
-    points = d["points"]
-    idx = next((i for i, p in enumerate(points) if str(p["id"]) == point_id), None)
-    if idx is None:
-        raise HTTPException(status_code=404, detail=f"no point with id {point_id!r}")
-
-    vectors = np.array([p["vector"] for p in points], dtype=np.float32)
-    dists = pairwise_distances(vectors[idx:idx + 1], vectors, metric=metric)[0]
-    order = [i for i in np.argsort(dists) if i != idx][:k]
-
-    return {
-        "id": points[idx]["id"],
-        "neighbors": [
-            {
-                "id": points[i]["id"], "lang": points[i]["lang"], "text": points[i].get("text"),
-                "distance": float(dists[i]),
-            }
-            for i in order
-        ],
     }
 
 
