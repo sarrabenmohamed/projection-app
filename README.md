@@ -138,7 +138,9 @@ JSON*. Anything unknown is grouped as "Other".
 
 ## Development
 
-`make test` runs the backend tests (pytest). Frontend files are served
+`make test` runs the backend tests and the browser tests in `tests/e2e/`
+(pytest; the latter drive the real page in headless Chromium, so run
+`.venv/bin/playwright install chromium` once, or they are skipped). Frontend files are served
 as-is, so a browser refresh picks up JS/CSS changes; restart `make run`
 after editing `server.py`. To run the frontend against a backend on
 another address, open the page with `?backend=http://host:port`.
