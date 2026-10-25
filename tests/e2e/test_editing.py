@@ -99,7 +99,6 @@ def test_adding_a_language_places_it_without_moving_anything(editor):
     assert screen_positions(editor, before) == pytest.approx(on_screen)  # the axes and zoom didn't change either
     assert sorted(editor.js("__app.points.filter(p => p.overlaid).map(p => p.id)")) == sorted(f"spa_Latn-{i}" for i in range(SENTENCES))
     assert editor.selection == ["eng_Latn-0"]
-    assert "12 overlaid" in editor.page.inner_text("#status")
     assert "12 of 48 points" in editor.page.inner_text("#overlay-note")
     # Only the new language was embedded, and the cached ones were reused.
     assert embedder_calls(editor)[-1] == {"lang_codes": ["spa_Latn"], "n_sentences": SENTENCES, "start": 0, "model": "xlm-roberta-base", "pooling": "mean"}
@@ -120,7 +119,7 @@ def test_adding_sentences_embeds_only_the_new_ones(editor):
 
 def test_refit_folds_the_overlaid_points_into_the_layout(editor):
     update_to(editor, BASE + ["spa_Latn"])
-    editor.wait_for_status("12 overlaid")
+    editor.wait_for_status("48 points")
     editor.settle()
     fit = editor.js("__app._fitId")
     before = positions(editor)

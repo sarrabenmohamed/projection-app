@@ -56,7 +56,7 @@ refined with UMAP's layout optimiser with the fitted points held fixed, so a
 new language lands among the languages it resembles in the original space
 (the tokens of such a sentence are placed the same way, so they land next to it).
 Treat their position as an approximation: they were not part of the fit
-(they have a **dark outline** and an "overlaid" hover label), so distances
+(they have a **dark outline**), so distances
 between them and fitted points say less than distances within the fitted
 set. A note under the status line says how many points were overlaid; **Refit**
 there (or in *Method parameters*) fits UMAP on all points together again,

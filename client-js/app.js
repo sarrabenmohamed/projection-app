@@ -413,7 +413,7 @@ class App {
     this._overlaidCount = proj.n_overlaid || 0;
 
     document.getElementById('status').textContent =
-      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}${this._overlaidCount ? ` · ${this._overlaidCount} overlaid` : ''}`;
+      `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}`;
     this._renderOverlayNote(meta.points.length);
     this.floresPanel.setDataset(meta);
 
@@ -471,8 +471,8 @@ class App {
     const overlaid = this._overlaidCount;
     document.getElementById('overlay-note').hidden = overlaid === 0;
     if (overlaid === 0) return;
-    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it, so nothing already on the plot moved (the view stays as it was; "Fit view" frames the new points).`;
-    if (overlaid > total - overlaid) text += ' Most points are overlaid now; a refit gives a more faithful layout.';
+    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it; nothing already plotted moved.`;
+    if (overlaid > total - overlaid) text += ' Most points are overlaid; a refit gives a more faithful layout.';
     document.getElementById('overlay-note-text').textContent = text;
   }
 
