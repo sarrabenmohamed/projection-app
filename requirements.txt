@@ -1,4 +1,4 @@
-# Embedding pipeline (embedding_pipeline.py)
+# Embedding pipeline (backend/embedding_pipeline.py)
 torch
 transformers
 datasets

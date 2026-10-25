@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-import embedding_pipeline as ep
+from backend import embedding_pipeline as ep
 
 
 def test_mean_pool_averages_only_unmasked_tokens():
