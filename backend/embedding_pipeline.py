@@ -86,18 +86,22 @@ class EmbeddingCancelled(Exception):
 
 def build_dataset(
     lang_codes: list[str], n_sentences: int, model_name: str, pooling: str = "mean",
-    should_cancel: Optional[Callable[[], bool]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None, start: int = 0,
 ) -> dict:
-    """Loads FLORES-200 for each language and embeds it, returning the same
-    JSON-shaped dict server.py caches to disk and loads on startup.
-    should_cancel is polled before every sentence (and before the model
-    loads); a true result raises EmbeddingCancelled."""
+    """Loads FLORES-200 for each language and embeds sentences start ..
+    n_sentences-1 of it (the first `start` were embedded earlier; pairIds
+    keep counting from there), returning the same JSON-shaped dict the
+    per-language cache is built from. should_cancel is polled before every
+    sentence (and before the model loads); a true result raises
+    EmbeddingCancelled."""
+    if not 0 <= start < n_sentences:
+        raise ValueError(f"start must be between 0 and n_sentences - 1 ({n_sentences - 1}), got {start}")
     # Load every language first so a bad code fails in seconds, not after
     # the model download.
     datasets = {}
     for code in lang_codes:
         try:
-            datasets[code] = load_dataset("facebook/flores", code, split="devtest").select(range(n_sentences))
+            datasets[code] = load_dataset("facebook/flores", code, split="devtest").select(range(start, n_sentences))
         except ValueError as e:
             raise UnknownLanguageError(f'"{code}" is not a FLORES-200 language code (e.g. eng_Latn, deu_Latn)') from e
 
@@ -111,7 +115,7 @@ def build_dataset(
     for code in lang_codes:
         print(f"Embedding {code} ...")
         ds = datasets[code]
-        for pair_id, row in enumerate(ds):
+        for pair_id, row in enumerate(ds, start=start):
             if should_cancel and should_cancel():
                 raise EmbeddingCancelled()
             text = row["sentence"]

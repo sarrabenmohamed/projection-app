@@ -67,10 +67,12 @@ export class ProjectionView {
     this.canvas.addEventListener('contextmenu', event => event.preventDefault()); // right-drag is the box-select
   }
 
-  update(points, onClickPoint) {
+  // keepColors: `points` is an edited version of the current set, so
+  // languages already colored keep their colors (see PointLayer.setPoints).
+  update(points, onClickPoint, { keepColors = false } = {}) {
     this._onClickPoint = onClickPoint;
 
-    this.pointLayer.setPoints(points);
+    this.pointLayer.setPoints(points, { keepColors });
     this._fitScales();
 
     // fires the axes' onZoom callback synchronously, which draws the first frame
@@ -456,7 +458,8 @@ export class ProjectionView {
     this._requestDraw();
     if (d) {
       const rect = this.el.getBoundingClientRect();
-      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
+      const label = String(d[this._labelBy]);
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, d.overlaid ? `${label} · overlaid` : label);
       this.canvas.style.cursor = 'pointer';
     } else {
       this.tooltip.hide();

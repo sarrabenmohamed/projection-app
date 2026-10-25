@@ -61,3 +61,19 @@ def test_build_dataset_runs_to_the_end_when_not_cancelled(monkeypatch):
     embedded = _stub_pipeline(monkeypatch)
     result = ep.build_dataset(["eng_Latn"], 3, "m", should_cancel=lambda: False)
     assert len(result["points"]) == 3 and len(embedded) == 3
+
+
+def test_build_dataset_can_continue_from_a_later_sentence(monkeypatch):
+    embedded = _stub_pipeline(monkeypatch)
+    result = ep.build_dataset(["eng_Latn", "deu_Latn"], 5, "m", start=3)
+    assert embedded == ["s3", "s4", "s3", "s4"]
+    assert [(p["id"], p["pairId"]) for p in result["points"]] == [
+        ("eng_Latn-3", 3), ("eng_Latn-4", 4), ("deu_Latn-3", 3), ("deu_Latn-4", 4),
+    ]
+
+
+@pytest.mark.parametrize("start", [-1, 5, 9])
+def test_build_dataset_rejects_a_start_outside_the_requested_range(monkeypatch, start):
+    _stub_pipeline(monkeypatch)
+    with pytest.raises(ValueError, match="start"):
+        ep.build_dataset(["eng_Latn"], 5, "m", start=start)

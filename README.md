@@ -30,9 +30,38 @@ sidebar and choose the FLORES-200 language codes, sentences per language
 (1–1012), model and pooling (`mean` | `max` | `cls` — how token vectors
 combine into a sentence vector). Memory and time grow with languages ×
 sentences, so start small (the default is 5 languages × 100 sentences).
-Each language is cached under `data/`, so repeating a load (or adding a
-language to it) only embeds what is new. **Cancel** (or Esc) in the loading
-overlay stops a running embedding job; the current dataset is kept.
+Each language is cached under `data/`, as many sentences as have been
+embedded so far, so a load only embeds what is new: a new language adds a
+file and more sentences extend the existing ones. **Cancel** (or Esc) in the
+loading overlay stops a running embedding job; the current dataset is kept.
+
+### Editing the loaded dataset
+
+Once a FLORES-200 dataset is loaded, the same form has two modes (the
+buttons at its top):
+
+- **Edit loaded** (the default) — add or remove languages, or change the
+  number of sentences, and press **Update dataset**. Only what is new is
+  embedded, and it is *placed into the existing UMAP layout* instead of
+  recomputing it, so nothing already on the plot moves and your selection,
+  pins, filters and colours stay. The model and pooling are locked here,
+  since other embeddings would need a new projection. A line above the
+  button shows what the update will change.
+- **Load new** — embed a different selection, model or pooling from
+  scratch and replace the dataset (and recompute the projection). An
+  uploaded file can only be replaced this way.
+
+New points are placed by their nearest already-fitted neighbours and then
+refined with UMAP's layout optimiser with the fitted points held fixed, so a
+new language lands among the languages it resembles in the original space
+(the tokens of such a sentence are placed the same way, so they land next to it).
+Treat their position as an approximation: they were not part of the fit
+(they have a **dark outline** and an "overlaid" hover label), so distances
+between them and fitted points say less than distances within the fitted
+set. A note under the status line says how many points were overlaid; **Refit**
+there (or in *Method parameters*) fits UMAP on all points together again,
+which moves everything. Changing the method, metric, 2D/3D or the parameters
+also refits. t-SNE has no out-of-sample step, so it always refits.
 
 ## Demo
 
@@ -72,7 +101,7 @@ feature (translations, tokens) has something to show.
 - **Method / metric** — switch UMAP ↔ t-SNE and cosine/euclidean/manhattan;
   only the selected method's parameters are shown (UMAP: neighbors,
   min_dist; t-SNE: perplexity, learning_rate). **Refit** re-runs with the
-  edited values.
+  edited values (and, after an edit, fits all points together).
 - **Label on hover** — choose what the tooltip shows (text/ID/language/
   language family).
 - **Fisheye lens** — check the box and a blue disk with a visible outline
@@ -118,7 +147,8 @@ feature (translations, tokens) has something to show.
   either a `vector` column or one numeric column per dimension); click "?"
   for the details. Samples are in `examples/`. **Load FLORES-200** embeds the chosen subset on the
   backend (needs the Hugging Face setup above) and replaces whatever is
-  loaded, without restarting the server.
+  loaded, without restarting the server; **Update dataset** edits it in
+  place (see above).
 
 ## Language families
 
@@ -140,9 +170,11 @@ JSON*. Anything unknown is grouped as "Other".
 
 `make test` runs the backend tests and the browser tests in `tests/e2e/`
 (pytest; the latter drive the real page in headless Chromium, so run
-`.venv/bin/playwright install chromium` once, or they are skipped). Frontend files are served
+`.venv/bin/playwright install chromium` once, or they are skipped; the
+FLORES-200 ones use `tests/e2e/fake_server.py`, which swaps the model for
+deterministic vectors). Frontend files are served
 as-is, so a browser refresh picks up JS/CSS changes; restart `make run`
-after editing `server.py`. To run the frontend against a backend on
+after editing `server.py` or `backend/`. To run the frontend against a backend on
 another address, open the page with `?backend=http://host:port`.
 
 ## Troubleshooting

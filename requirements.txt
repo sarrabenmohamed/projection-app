@@ -6,6 +6,6 @@ datasets
 # Backend server (server.py)
 fastapi
 uvicorn
-umap-learn
+umap-learn>=0.5,<0.6  # backend/overlay.py uses its layout internals
 scikit-learn
 numpy

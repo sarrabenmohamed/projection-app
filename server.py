@@ -12,9 +12,13 @@ Endpoints:
     POST /dataset                 load a dataset (JSON shape the frontend validates).
     POST /dataset/upload          load a JSON, JSONL or CSV file (?format=).
     POST /dataset/flores          embed (or load from cache) a FLORES-200 subset; POST /dataset/flores/cancel stops it.
-    GET  /dataset/info            whether anything is loaded (never 404s).
+    PATCH /dataset/flores         edit the loaded FLORES-200 dataset: add/remove languages, add/remove sentences. Embeds only
+                                  what is new and keeps the layout, so the new points are placed into it (see /project).
+    GET  /dataset/info            whether anything is loaded, and where it came from (never 404s).
     GET  /points                  point metadata only, no vectors (includes each point's language family).
     GET  /project                 2D (or 3D, ?n_components=3) coords for all points (?method=umap|tsne&metric=&n_neighbors=&min_dist=&perplexity=&learning_rate=).
+                                  UMAP keeps its fit between edits: points added since are placed into it ("overlaid": true);
+                                  ?refit=true fits everything again.
     GET  /project/tokens/{id}     coords for one point's tokens, in the same UMAP space (?metric=/n_neighbors=/min_dist=/n_components= must match).
     POST /stats                   aggregate cosine/alignment statistics for a set of selected point ids.
 """
@@ -33,9 +37,9 @@ from pydantic import BaseModel
 
 from backend import embedding_pipeline
 from backend.alignment_stats import selection_stats
-from backend.dataset import DatasetStore, NoDatasetError, validate_and_normalize
+from backend.dataset import DatasetChangedError, DatasetStore, NoDatasetError, validate_and_normalize
 from backend.dataset_formats import parse_dataset_text
-from backend.flores import FloresLoader
+from backend.flores import FloresLoader, LoadedFlores
 from backend.languages import point_family
 from backend.projection import Projector
 
@@ -95,14 +99,12 @@ async def upload_dataset(request: Request, format: str = "json") -> dict:
     return store.replace(normalized)
 
 
-@app.post("/dataset/flores")
-def load_flores_dataset(raw: dict) -> dict:
-    """Embeds the requested FLORES-200 languages/sentences (or reads the
-    per-language cache under data/) and makes that the current dataset. Runs
-    in the threadpool since a first build can take minutes. On failure the
-    current dataset is left untouched."""
+def _load_flores(raw: dict) -> LoadedFlores:
+    """Embeds (or reads from the cache) what the request asks for, with
+    failures as HTTP errors. Runs in the threadpool since a first build can
+    take minutes."""
     try:
-        normalized = flores_loader.load(raw)
+        return flores_loader.load(raw)
     except embedding_pipeline.EmbeddingCancelled as e:
         raise HTTPException(status_code=409, detail="FLORES-200 load cancelled.") from e
     except ValueError as e:  # a bad request, or UnknownLanguageError
@@ -110,7 +112,35 @@ def load_flores_dataset(raw: dict) -> dict:
     except Exception as e:
         logging.getLogger("uvicorn.error").exception("FLORES-200 load failed")
         raise HTTPException(status_code=500, detail=f"Could not load FLORES-200: {type(e).__name__}: {e}") from e
-    return store.replace(normalized)
+
+
+@app.post("/dataset/flores")
+def load_flores_dataset(raw: dict) -> dict:
+    """Embeds the requested FLORES-200 languages/sentences (or reads the
+    per-language cache under data/) and makes that the current dataset. On
+    failure the current dataset is left untouched."""
+    return store.replace(*_load_flores(raw))
+
+
+@app.patch("/dataset/flores")
+def edit_flores_dataset(raw: dict) -> dict:
+    """Changes which languages and how many sentences the loaded FLORES-200
+    dataset has. The model and pooling stay those it was embedded with —
+    other embeddings would need a new projection, i.e. POST /dataset/flores.
+    The dataset keeps its generation, so the projection layout survives."""
+    snapshot = store.snapshot()
+    if snapshot.source.get("kind") != "flores":
+        raise HTTPException(status_code=409, detail="Only a FLORES-200 dataset can be edited; load a new dataset instead.")
+    for field in ("model", "pooling"):
+        if field in raw and raw[field] != snapshot.data[field]:
+            raise _bad_request(ValueError(
+                f"The {field} can't change while editing (it is {snapshot.data[field]!r}); load a new dataset instead."))
+
+    loaded = _load_flores({**raw, "model": snapshot.data["model"], "pooling": snapshot.data["pooling"]})
+    try:
+        return store.revise(loaded.dataset, loaded.source, based_on_generation=snapshot.generation)
+    except DatasetChangedError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @app.post("/dataset/flores/cancel")
@@ -139,6 +169,7 @@ def get_points() -> dict:
         "pooling": d.get("pooling", "mean"),
         "dim": d["dim"],
         "lang_codes": d["lang_codes"],
+        "source": store.source,
         "points": [
             {
                 "id": p["id"], "lang": p["lang"], "pairId": p.get("pairId"), "text": p.get("text"),
@@ -160,9 +191,10 @@ def project(
     perplexity: Optional[float] = Query(default=None, gt=0, le=500),
     learning_rate: Optional[float] = Query(default=None, gt=0),
     n_components: int = Query(default=2, ge=2, le=3),
+    refit: bool = False,
 ) -> dict:
     try:
-        return projector.project(method, metric, n_components, n_neighbors, min_dist, perplexity, learning_rate)
+        return projector.project(method, metric, n_components, n_neighbors, min_dist, perplexity, learning_rate, refit)
     except ValueError as e:
         raise _bad_request(e) from e
 
