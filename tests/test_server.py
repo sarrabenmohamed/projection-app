@@ -6,6 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server
+from backend import alignment_stats, flores, projection
+from backend.dataset import validate_and_normalize
+from backend.languages import family_of
 
 SAMPLE_DATASET = {
     "model": "test-model",
@@ -32,18 +35,17 @@ SAMPLE_DATASET = {
 
 @pytest.fixture
 def client():
-    server.DATASET["data"] = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
-    server.DATASET["generation"] += 1
+    server.store.replace(validate_and_normalize(copy.deepcopy(SAMPLE_DATASET)))
     return TestClient(server.app)
 
 
 def test_validate_and_normalize_accepts_dataset_without_token_vectors():
-    normalized = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
+    normalized = validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
     assert normalized["points"][0].get("tokenVectors") is None
 
 
 def test_validate_and_normalize_accepts_token_vectors():
-    normalized = server.validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
+    normalized = validate_and_normalize(copy.deepcopy(SAMPLE_DATASET))
     assert normalized["points"][2]["tokenVectors"][0] == {"token": "bye", "vector": [0.9, 0.8, 0.7]}
 
 
@@ -51,14 +53,14 @@ def test_validate_and_normalize_rejects_wrong_length_token_vector():
     bad = copy.deepcopy(SAMPLE_DATASET)
     bad["points"][2]["tokenVectors"] = [{"token": "bye", "vector": [0.9, 0.8]}]  # dim 2, dataset dim is 3
     with pytest.raises(ValueError):
-        server.validate_and_normalize(bad)
+        validate_and_normalize(bad)
 
 
 def test_validate_and_normalize_rejects_token_vector_missing_token_string():
     bad = copy.deepcopy(SAMPLE_DATASET)
     bad["points"][2]["tokenVectors"] = [{"vector": [0.9, 0.8, 0.7]}]
     with pytest.raises(ValueError):
-        server.validate_and_normalize(bad)
+        validate_and_normalize(bad)
 
 
 def test_points_endpoint_reports_has_tokens(client):
@@ -77,10 +79,10 @@ def test_points_endpoint_reports_language_family(client):
 
 
 def test_family_of_maps_known_flores_codes():
-    assert server.family_of("eng_Latn") == "Germanic"
-    assert server.family_of("fra_Latn") == "Romance"
-    assert server.family_of("not-a-real-code") == "Other"
-    assert server.family_of("zzz_Latn") == "Other"
+    assert family_of("eng_Latn") == "Germanic"
+    assert family_of("fra_Latn") == "Romance"
+    assert family_of("not-a-real-code") == "Other"
+    assert family_of("zzz_Latn") == "Other"
 
 
 def test_points_endpoint_reports_token_texts(client):
@@ -104,61 +106,56 @@ def _fake_builder(calls):
 CACHE_CONFIG = {"model": "m", "lang_codes": ["a", "b"], "n_sentences": 3, "pooling": "mean"}
 
 
-def test_load_or_build_dataset_embeds_only_new_languages(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+def test_load_or_build_dataset_embeds_only_new_languages(tmp_path):
     calls = []
-    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
+    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
     assert calls == [(["a", "b"], 3, "m", "mean")]
 
-    result = server._load_or_build_dataset({**CACHE_CONFIG, "lang_codes": ["a", "b", "c"]}, _fake_builder(calls))
+    result = flores.load_or_build_dataset({**CACHE_CONFIG, "lang_codes": ["a", "b", "c"]}, _fake_builder(calls), tmp_path)
     assert calls[1] == (["c"], 3, "m", "mean")  # a and b came from the cache
     assert [p["id"] for p in result["points"]][:1] == ["a-0"]
     assert result["lang_codes"] == ["a", "b", "c"] and len(result["points"]) == 9
 
 
-def test_load_or_build_dataset_full_cache_hit_never_builds(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
-    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder([]))
+def test_load_or_build_dataset_full_cache_hit_never_builds(tmp_path):
+    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder([]), tmp_path)
 
     def explode(*args):
         raise AssertionError("builder should not run on a cache hit")
 
-    server._load_or_build_dataset(CACHE_CONFIG, explode)
+    flores.load_or_build_dataset(CACHE_CONFIG, explode, tmp_path)
 
 
-def test_load_or_build_dataset_serves_smaller_n_from_larger_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
-    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder([]))
-    result = server._load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, lambda *a: 1 / 0)
+def test_load_or_build_dataset_serves_smaller_n_from_larger_cache(tmp_path):
+    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder([]), tmp_path)
+    result = flores.load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, lambda *a: 1 / 0, tmp_path)
     assert len(result["points"]) == 4
 
 
-def test_load_or_build_dataset_rebuilds_language_when_more_sentences_needed(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+def test_load_or_build_dataset_rebuilds_language_when_more_sentences_needed(tmp_path):
     calls = []
-    server._load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, _fake_builder(calls))
-    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
+    flores.load_or_build_dataset({**CACHE_CONFIG, "n_sentences": 2}, _fake_builder(calls), tmp_path)
+    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
     assert calls[1] == (["a", "b"], 3, "m", "mean")
 
 
-def test_load_or_build_dataset_cache_is_per_model_and_pooling(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+def test_load_or_build_dataset_cache_is_per_model_and_pooling(tmp_path):
     calls = []
-    server._load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls))
-    server._load_or_build_dataset({**CACHE_CONFIG, "model": "other"}, _fake_builder(calls))
-    server._load_or_build_dataset({**CACHE_CONFIG, "pooling": "max"}, _fake_builder(calls))
+    flores.load_or_build_dataset(CACHE_CONFIG, _fake_builder(calls), tmp_path)
+    flores.load_or_build_dataset({**CACHE_CONFIG, "model": "other"}, _fake_builder(calls), tmp_path)
+    flores.load_or_build_dataset({**CACHE_CONFIG, "pooling": "max"}, _fake_builder(calls), tmp_path)
     assert len(calls) == 3
 
 
 def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
     fit_calls = []
-    orig_fit = server.umap.UMAP.fit
+    orig_fit = projection.umap.UMAP.fit
 
     def spy_fit(self, X, *a, **kw):
         fit_calls.append(1)
         return orig_fit(self, X, *a, **kw)
 
-    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+    monkeypatch.setattr(projection.umap.UMAP, "fit", spy_fit)
 
     client.get("/project?method=umap")
     client.get("/project?method=umap")
@@ -171,13 +168,13 @@ def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
 
 def test_project_umap_refits_when_metric_changes(client, monkeypatch):
     fit_calls = []
-    orig_fit = server.umap.UMAP.fit
+    orig_fit = projection.umap.UMAP.fit
 
     def spy_fit(self, X, *a, **kw):
         fit_calls.append(1)
         return orig_fit(self, X, *a, **kw)
 
-    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+    monkeypatch.setattr(projection.umap.UMAP, "fit", spy_fit)
 
     client.get("/project?method=umap&metric=euclidean")
     client.get("/project?method=umap&metric=euclidean")
@@ -208,13 +205,13 @@ def test_project_umap_clamps_n_neighbors_to_available_points(client):
 
 def test_project_umap_refits_when_n_neighbors_or_min_dist_changes(client, monkeypatch):
     fit_calls = []
-    orig_fit = server.umap.UMAP.fit
+    orig_fit = projection.umap.UMAP.fit
 
     def spy_fit(self, X, *a, **kw):
         fit_calls.append(1)
         return orig_fit(self, X, *a, **kw)
 
-    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+    monkeypatch.setattr(projection.umap.UMAP, "fit", spy_fit)
 
     client.get("/project?method=umap&n_neighbors=2&min_dist=0.1")
     client.get("/project?method=umap&n_neighbors=2&min_dist=0.1")
@@ -252,13 +249,13 @@ def test_project_tsne_rejects_out_of_range_hyperparams(client):
 
 def test_project_tokens_uses_matching_n_neighbors_and_min_dist(client, monkeypatch):
     fit_calls = []
-    orig_fit = server.umap.UMAP.fit
+    orig_fit = projection.umap.UMAP.fit
 
     def spy_fit(self, X, *a, **kw):
         fit_calls.append(1)
         return orig_fit(self, X, *a, **kw)
 
-    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+    monkeypatch.setattr(projection.umap.UMAP, "fit", spy_fit)
 
     client.get("/project?method=umap&n_neighbors=2&min_dist=0.2")
     client.get("/project/tokens/en-1?n_neighbors=2&min_dist=0.2")
@@ -279,13 +276,13 @@ def test_project_tokens_success(client):
 
 def test_project_umap_3d_returns_z_and_refits_per_dimensionality(client, monkeypatch):
     fit_calls = []
-    orig_fit = server.umap.UMAP.fit
+    orig_fit = projection.umap.UMAP.fit
 
     def spy_fit(self, X, *a, **kw):
         fit_calls.append(1)
         return orig_fit(self, X, *a, **kw)
 
-    monkeypatch.setattr(server.umap.UMAP, "fit", spy_fit)
+    monkeypatch.setattr(projection.umap.UMAP, "fit", spy_fit)
 
     flat = client.get("/project?method=umap").json()
     assert "z" not in flat["points"][0]
@@ -364,8 +361,8 @@ def test_stats_retrieval_accuracy_counts_mutual_nearest_translations():
     en = np.array([[1.0, 0.0], [0.0, 1.0]])
     de_aligned = np.array([[0.9, 0.1], [0.1, 0.9]])
     de_swapped = np.array([[0.1, 0.9], [0.9, 0.1]])
-    assert server._retrieval_accuracy(en @ de_aligned.T) == 1.0
-    assert server._retrieval_accuracy(en @ de_swapped.T) == 0.0
+    assert alignment_stats._retrieval_accuracy(en @ de_aligned.T) == 1.0
+    assert alignment_stats._retrieval_accuracy(en @ de_swapped.T) == 0.0
 
 
 def test_stats_single_pair_has_no_retrieval_accuracy(client):
@@ -395,28 +392,27 @@ def test_stats_unknown_id_is_404(client):
 
 
 def test_family_of_uses_glottolog_data_for_flores_codes():
-    assert server.family_of("rus_Cyrl") == "Slavic"
-    assert server.family_of("hin_Deva") == "Indo-Iranian"
-    assert server.family_of("jpn_Jpan") == "Japonic"
-    assert server.family_of("lvs_Latn") == "Baltic"
-    assert server.family_of("zho_Hans") == server.family_of("zho_Hant") == "Sino-Tibetan"
+    assert family_of("rus_Cyrl") == "Slavic"
+    assert family_of("hin_Deva") == "Indo-Iranian"
+    assert family_of("jpn_Jpan") == "Japonic"
+    assert family_of("lvs_Latn") == "Baltic"
+    assert family_of("zho_Hans") == family_of("zho_Hant") == "Sino-Tibetan"
 
 
 def test_family_of_covers_languages_beyond_the_old_hardcoded_forty():
-    assert server.family_of("swh_Latn") != "Other"
-    assert server.family_of("quy_Latn") != "Other"
+    assert family_of("swh_Latn") != "Other"
+    assert family_of("quy_Latn") != "Other"
 
 
 def test_family_of_override_wins_over_glottolog():
-    assert server.family_of("eng_Latn", {"eng_Latn": "Custom"}) == "Custom"
-    assert server.family_of("fra_Latn", {"eng_Latn": "Custom"}) == "Romance"
+    assert family_of("eng_Latn", {"eng_Latn": "Custom"}) == "Custom"
+    assert family_of("fra_Latn", {"eng_Latn": "Custom"}) == "Romance"
 
 
 def test_points_endpoint_uses_dataset_lang_families():
     raw = copy.deepcopy(SAMPLE_DATASET)
     raw["lang_families"] = {"en": "Germanic", "de": "Germanic"}
-    server.DATASET["data"] = server.validate_and_normalize(raw)
-    server.DATASET["generation"] += 1
+    server.store.replace(validate_and_normalize(raw))
     by_id = {p["id"]: p for p in TestClient(server.app).get("/points").json()["points"]}
     assert by_id["en-0"]["family"] == "Germanic"
     assert by_id["de-0"]["family"] == "Germanic"
@@ -426,8 +422,7 @@ def test_points_endpoint_per_point_family_beats_lang_families():
     raw = copy.deepcopy(SAMPLE_DATASET)
     raw["lang_families"] = {"en": "Germanic"}
     raw["points"][0]["family"] = "Special"
-    server.DATASET["data"] = server.validate_and_normalize(raw)
-    server.DATASET["generation"] += 1
+    server.store.replace(validate_and_normalize(raw))
     by_id = {p["id"]: p for p in TestClient(server.app).get("/points").json()["points"]}
     assert by_id["en-0"]["family"] == "Special"
     assert by_id["en-2"]["family"] == "Germanic"
@@ -436,8 +431,7 @@ def test_points_endpoint_per_point_family_beats_lang_families():
 def test_stats_languages_report_dataset_families():
     raw = copy.deepcopy(SAMPLE_DATASET)
     raw["lang_families"] = {"en": "Special"}
-    server.DATASET["data"] = server.validate_and_normalize(raw)
-    server.DATASET["generation"] += 1
+    server.store.replace(validate_and_normalize(raw))
     body = TestClient(server.app).post("/stats", json={"ids": ["en-0", "de-0"]}).json()
     assert {l["lang"]: l["family"] for l in body["languages"]} == {"en": "Special", "de": "Germanic"}
 
@@ -446,29 +440,29 @@ def test_validate_and_normalize_rejects_non_object_lang_families():
     bad = copy.deepcopy(SAMPLE_DATASET)
     bad["lang_families"] = ["Germanic"]
     with pytest.raises(ValueError):
-        server.validate_and_normalize(bad)
+        validate_and_normalize(bad)
 
 
 def test_validate_and_normalize_rejects_empty_point_family():
     bad = copy.deepcopy(SAMPLE_DATASET)
     bad["points"][0]["family"] = ""
     with pytest.raises(ValueError):
-        server.validate_and_normalize(bad)
+        validate_and_normalize(bad)
 
 
 def test_family_of_resolves_iso1_codes_and_english_names():
-    assert server.family_of("en") == "Germanic"
-    assert server.family_of("fr") == "Romance"
-    assert server.family_of("German") == "Germanic"
-    assert server.family_of("english") == "Germanic"
-    assert server.family_of("de-DE") == "Germanic"
-    assert server.family_of("  Eng_Latn ") == "Germanic"
-    assert server.family_of("zh") == "Sino-Tibetan"
+    assert family_of("en") == "Germanic"
+    assert family_of("fr") == "Romance"
+    assert family_of("German") == "Germanic"
+    assert family_of("english") == "Germanic"
+    assert family_of("de-DE") == "Germanic"
+    assert family_of("  Eng_Latn ") == "Germanic"
+    assert family_of("zh") == "Sino-Tibetan"
 
 
 def test_family_of_still_falls_back_to_other_for_nonsense():
-    assert server.family_of("xx") == "Other"
-    assert server.family_of("") == "Other"
+    assert family_of("xx") == "Other"
+    assert family_of("") == "Other"
 
 
 def test_server_does_not_build_a_dataset_on_startup():
@@ -477,18 +471,18 @@ def test_server_does_not_build_a_dataset_on_startup():
 
 
 def test_points_404_with_helpful_message_when_empty():
-    saved = dict(server.DATASET)
+    saved = server.store.data
     try:
-        server.DATASET["data"] = None
+        server.store.data = None
         res = TestClient(server.app).get("/points")
         assert res.status_code == 404
         assert "FLORES" in res.json()["detail"]
     finally:
-        server.DATASET.update(saved)
+        server.store.data = saved
 
 
 def test_flores_config_validates_and_dedupes():
-    cfg = server._flores_config({"lang_codes": ["eng_Latn", "deu_Latn", "eng_Latn"], "n_sentences": 25})
+    cfg = flores.flores_config({"lang_codes": ["eng_Latn", "deu_Latn", "eng_Latn"], "n_sentences": 25})
     assert cfg == {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 25, "model": "xlm-roberta-base", "pooling": "mean"}
 
 
@@ -504,7 +498,7 @@ def test_flores_config_validates_and_dedupes():
 ])
 def test_flores_config_rejects_bad_input(raw):
     with pytest.raises(ValueError):
-        server._flores_config(raw)
+        flores.flores_config(raw)
 
 
 def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
@@ -521,7 +515,7 @@ def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
 
     body = {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 3}
     res = client.post("/dataset/flores", json=body)
@@ -550,12 +544,12 @@ def test_flores_cancel_stops_the_build_and_keeps_the_dataset(client, tmp_path, m
         raise server.embedding_pipeline.EmbeddingCancelled()
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build_until_cancelled)
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
-    before = server.DATASET["data"]
+    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    before = server.store.data
     res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
     assert res.status_code == 409
     assert "cancelled" in res.json()["detail"]
-    assert server.DATASET["data"] is before
+    assert server.store.data is before
     assert not list(tmp_path.glob("flores_lang_*.json"))  # nothing half-built is cached
 
 
@@ -571,7 +565,7 @@ def test_flores_load_after_a_cancel_is_not_affected_by_it(client, tmp_path, monk
         }
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build)
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
     client.post("/dataset/flores/cancel")  # nothing running
     assert client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3}).status_code == 200
 
@@ -581,7 +575,7 @@ def test_flores_endpoint_400_on_unknown_language(client, tmp_path, monkeypatch):
         raise server.embedding_pipeline.UnknownLanguageError('"zzz_Xxxx" is not a FLORES-200 language')
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", unknown)
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
     res = client.post("/dataset/flores", json={"lang_codes": ["zzz_Xxxx"], "n_sentences": 3})
     assert res.status_code == 400
     assert "zzz_Xxxx" in res.json()["detail"]
@@ -597,12 +591,12 @@ def test_flores_endpoint_500_and_keeps_dataset_when_build_fails(client, tmp_path
         raise RuntimeError("no HuggingFace auth/network available")
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", boom)
-    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
-    before = server.DATASET["data"]
+    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    before = server.store.data
     res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
     assert res.status_code == 500
     assert "no HuggingFace auth" in res.json()["detail"]
-    assert server.DATASET["data"] is before
+    assert server.store.data is before
 
 
 def test_server_serves_the_frontend(client):
@@ -634,23 +628,41 @@ def test_upload_endpoint_accepts_csv(client):
     res = client.post("/dataset/upload?format=csv", content=csv_text.encode("utf-8"))
     assert res.status_code == 200
     assert sorted(res.json()["lang_codes"]) == ["de", "en"]
-    assert {p["text"] for p in server.DATASET["data"]["points"]} == {"hello", "hallo"}
+    assert {p["text"] for p in server.store.data["points"]} == {"hello", "hallo"}
 
 
 def test_upload_endpoint_400_on_bad_file_and_keeps_dataset(client):
-    before = server.DATASET["data"]
+    before = server.store.data
     res = client.post("/dataset/upload?format=csv", content="id,lang\na,en\n")
     assert res.status_code == 400
     assert "vector" in res.json()["detail"]
     assert client.post("/dataset/upload?format=nope", content="x").status_code == 400
     assert client.post("/dataset/upload?format=json", content=b"\xff\xfe").status_code == 400
-    assert server.DATASET["data"] is before
+    assert server.store.data is before
 
 
 def test_dataset_info_reports_loaded_and_empty(client, monkeypatch):
     info = client.get("/dataset/info").json()
     assert info["loaded"] is True and info["n_points"] == len(SAMPLE_DATASET["points"])
 
-    monkeypatch.setitem(server.DATASET, "data", None)
+    monkeypatch.setattr(server.store, "data", None)
     res = client.get("/dataset/info")
     assert res.status_code == 200 and res.json() == {"loaded": False}
+
+
+def test_flores_loader_builds_through_injected_builder_and_cancel_stops_the_next_build(tmp_path):
+    seen = []
+
+    def build(codes, n, model, pooling, should_cancel=None):
+        seen.append(should_cancel())
+        data = _fake_builder([])(codes, n, model, pooling)
+        for point in data["points"]:
+            point["tokenVectors"] = [{"token": "t", "vector": point["vector"]}]
+        return data
+
+    loader = flores.FloresLoader(tmp_path, build)
+    loader.load({"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 2})
+    assert seen == [False]
+    loader.cancel()
+    loader.load({"lang_codes": ["fra_Latn"], "n_sentences": 2})  # a fresh load starts uncancelled
+    assert seen == [False, False]

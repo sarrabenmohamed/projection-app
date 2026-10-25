@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from dataset_formats import parse_dataset_text
+from backend.dataset_formats import parse_dataset_text
 
 
 def test_json_passthrough():
