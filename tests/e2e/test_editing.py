@@ -76,10 +76,19 @@ def test_the_loaded_dataset_opens_in_edit_mode_with_its_settings_locked(editor):
     assert page.is_hidden("#flores-diff")
 
 
+def screen_positions(ui, ids):
+    return {i: ui.screen_of(i) for i in ids}
+
+
 def test_adding_a_language_places_it_without_moving_anything(editor):
     before = positions(editor)
     editor.page.mouse.click(*editor.screen_of("eng_Latn-0"))
     assert editor.selection == ["eng_Latn-0"]
+    box = editor.canvas_box()
+    editor.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    editor.page.mouse.wheel(0, -300)  # zoomed in, as a user inspecting the plot would be
+    editor.page.wait_for_function("__app.view.axes.transform.k > 1")
+    on_screen = screen_positions(editor, before)
 
     update_to(editor, BASE + ["spa_Latn"])
     editor.wait_for_status("48 points")
@@ -87,6 +96,7 @@ def test_adding_a_language_places_it_without_moving_anything(editor):
 
     after = positions(editor)
     assert {i: after[i] for i in before} == before
+    assert screen_positions(editor, before) == pytest.approx(on_screen)  # the axes and zoom didn't change either
     assert sorted(editor.js("__app.points.filter(p => p.overlaid).map(p => p.id)")) == sorted(f"spa_Latn-{i}" for i in range(SENTENCES))
     assert editor.selection == ["eng_Latn-0"]
     assert "12 overlaid" in editor.page.inner_text("#status")

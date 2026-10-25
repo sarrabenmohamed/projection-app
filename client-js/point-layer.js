@@ -133,7 +133,9 @@ export class PointLayer {
   // languages and families that were already colored keep their colors.
   // Scales are set separately because a 3D set's screen scale depends on the
   // radius that setPoints() computes.
-  setPoints(points, { keepColors = false } = {}) {
+  // keepSphere (3D): keep the previous center and radius so the cloud isn't rescaled.
+  setPoints(points, { keepColors = false, keepSphere = false } = {}) {
+    const sphere = { center: this._center, radius: this.radius };
     this._selectedLangs = new Set();
     this._langColorScale = null;
     this._tokenOverlayEntries = [];
@@ -152,6 +154,7 @@ export class PointLayer {
     if (this.dims === 3) {
       for (const d of this.points) d.p3 = [d.x, d.y, d.z];
       this._fitSphere();
+      if (keepSphere) [this._center, this.radius] = [sphere.center, sphere.radius];
       this._applyRotation();
     }
   }
