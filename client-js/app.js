@@ -72,6 +72,8 @@ class App {
       .addEventListener('click', () => this._refit());
     document.getElementById('overlay-refit')
       .addEventListener('click', () => this._refit());
+    document.getElementById('overlay-fit-view')
+      .addEventListener('click', () => this.view.fitView());
     document.getElementById('label-select')
       .addEventListener('change', e => this.view.setLabelBy(e.target.value));
     document.getElementById('fisheye-toggle')
@@ -373,6 +375,7 @@ class App {
     // still has some of the points.
     const previousIds = new Set(this.points.map(p => p.id));
     const keep = keepState && meta.points.some(p => previousIds.has(p.id));
+    const sameLayout = keep && proj.fit_id != null && proj.fit_id === this._fitId;
     let droppedPins = false;
 
     if (keep) {
@@ -430,7 +433,7 @@ class App {
     if (keep) {
       this.langFilter.setLangs(meta.lang_codes, { keepSelection: true });
       this.table.updatePoints(this.points);
-      this.view.update(this.points, d => this.onCanvasClickPoint(d), { keepColors: true });
+      this.view.update(this.points, d => this.onCanvasClickPoint(d), { keepColors: true, keepView: sameLayout });
       // PointLayer.setPoints() resets its own per-dataset state; re-apply it.
       this.view.setLangFilter(this.langFilter.getSelected());
       this.view.setShowPinnedOnly(this.table.isShowSelectedOnly());
@@ -468,7 +471,7 @@ class App {
     const overlaid = this._overlaidCount;
     document.getElementById('overlay-note').hidden = overlaid === 0;
     if (overlaid === 0) return;
-    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it, so nothing already on the plot moved.`;
+    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it, so nothing already on the plot moved (the view stays as it was; "Fit view" frames the new points).`;
     if (overlaid > total - overlaid) text += ' Most points are overlaid now; a refit gives a more faithful layout.';
     document.getElementById('overlay-note-text').textContent = text;
   }

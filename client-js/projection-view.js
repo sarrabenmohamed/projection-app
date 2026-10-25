@@ -69,13 +69,29 @@ export class ProjectionView {
 
   // keepColors: `points` is an edited version of the current set, so
   // languages already colored keep their colors (see PointLayer.setPoints).
-  update(points, onClickPoint, { keepColors = false } = {}) {
+  // keepView: the layout is the same one with points added or removed, so
+  // the axes and zoom stay as they are — everything already plotted stays
+  // exactly where it is on screen (new points may be off-screen until fitView()).
+  update(points, onClickPoint, { keepColors = false, keepView = false } = {}) {
     this._onClickPoint = onClickPoint;
 
-    this.pointLayer.setPoints(points, { keepColors });
+    const dims = this.pointLayer.dims;
+    keepView = keepView && this.pointLayer.baseXScale && points.length > 0 && (points[0].z !== undefined ? 3 : 2) === dims;
+    this.pointLayer.setPoints(points, { keepColors, keepSphere: keepView });
+    if (keepView) {
+      this._rebuildQuadtree();
+      this._draw();
+      return;
+    }
     this._fitScales();
 
     // fires the axes' onZoom callback synchronously, which draws the first frame
+    this.axes.reset();
+  }
+
+  // Frames every point (after an edit kept the old view).
+  fitView() {
+    this._fitScales();
     this.axes.reset();
   }
 
