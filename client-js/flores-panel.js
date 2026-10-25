@@ -50,7 +50,6 @@ export class FloresPanel {
     this._button = byId('flores-load-button');
     this._modeBar = byId('flores-mode');
     this._diff = byId('flores-diff');
-    this._hint = byId('flores-hint');
     this._error = byId('flores-error');
 
     for (const field of [this._langs, this._n, this._model, this._pooling]) field.addEventListener('input', () => this._render());
@@ -136,10 +135,5 @@ export class FloresPanel {
 
     this._button.textContent = editing ? 'Update dataset' : 'Load FLORES-200';
     this._button.disabled = this._busy || (editing && !edit.changed);
-    if (editing) {
-      this._hint.textContent = "Only what's new is embedded; the points already on the plot keep their positions.";
-    } else {
-      this._hint.textContent = this._loaded ? 'Embeds everything again and recomputes the whole projection.' : '';
-    }
   }
 }

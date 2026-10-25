@@ -474,8 +474,7 @@ export class ProjectionView {
     this._requestDraw();
     if (d) {
       const rect = this.el.getBoundingClientRect();
-      const label = String(d[this._labelBy]);
-      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, d.overlaid ? `${label} · overlaid` : label);
+      this.tooltip.show(event.clientX - rect.left, event.clientY - rect.top, String(d[this._labelBy]));
       this.canvas.style.cursor = 'pointer';
     } else {
       this.tooltip.hide();
