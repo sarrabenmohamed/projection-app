@@ -83,13 +83,15 @@ feature (translations, tokens) has something to show.
   search, across all pages. Narrow with the search box first, e.g.
   `lang=deu_Latn` then Select all pins just that language.
 - **Statistics / Alignment panel** (bottom) — aggregate cosine statistics
-  for the pinned points, computed in the full embedding space rather than
-  the 2D plot: mean cosine within vs. across languages, and for every
-  language pair the mean cosine of true translations vs. unrelated
-  sentences, their gap, and retrieval accuracy (how often a translation
-  is the mutual nearest neighbor of its source, among the selection).
-  Translations are matched by `pairId`; without it only the overall
-  numbers are shown. Collapse it with its ▾ button.
+  for the pinned points (one or more languages, all translations of a
+  sentence, or an area), computed in the full embedding space rather than
+  the 2D plot: mean cosine within vs. across languages, the mean cosine of
+  true translations, and retrieval accuracy (how often a translation is the
+  mutual nearest neighbor of its source, among the selection). Translations
+  are matched by `pairId`; without it only the within/across numbers are
+  shown. Vectors are centred on the dataset mean first: contextual
+  embeddings share one large direction that otherwise pushes every cosine
+  towards 1. Collapse it with its ▾ button.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
   — independently toggle its tokens, or **Select translations** (a checkbox) to pin
   every point sharing its `pairId` and isolate the plot to them; untick it

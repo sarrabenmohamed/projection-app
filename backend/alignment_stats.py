@@ -1,7 +1,14 @@
 """Alignment statistics for a selection of points: how similar are the
 embeddings within a language, across languages, and between true translations.
 Always cosine similarity in the full embedding space (not the 2D/3D
-projection), the usual convention for alignment."""
+projection), the usual convention for alignment.
+
+The vectors are centred on the mean of the whole dataset first. Contextual
+embeddings share a large common direction, so raw cosines of any two
+sentences are all close to 1 (0.99+) and translations look no closer than
+unrelated sentences; removing the shared mean is the standard remedy and
+makes the cosines spread out. The mean is the dataset's, not the
+selection's, so numbers stay comparable between selections."""
 
 from __future__ import annotations
 
@@ -90,12 +97,13 @@ def selection_stats(dataset: dict, ids: list) -> dict:
         raise LookupError(f"no point with id {str(missing[0])!r}")
 
     selected = list({str(i): by_id[str(i)] for i in ids}.values())
+    centre = np.mean([p["vector"] for p in dataset["points"]], axis=0, dtype=np.float64)
     langs = sorted({p["lang"] for p in selected})
     unit_by_lang: dict[str, np.ndarray] = {}
     first_row_by_lang: dict[str, dict] = {}  # lang -> pairId -> row in that language's matrix
     for lang in langs:
         members = [p for p in selected if p["lang"] == lang]
-        unit_by_lang[lang] = _unit_rows(np.array([p["vector"] for p in members], dtype=np.float64))
+        unit_by_lang[lang] = _unit_rows(np.array([p["vector"] for p in members], dtype=np.float64) - centre)
         first_row: dict = {}
         for row, p in enumerate(members):
             if p.get("pairId") is not None:
