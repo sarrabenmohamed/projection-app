@@ -31,7 +31,7 @@ function parseSearchQuery(raw, field = '') {
 }
 
 // Sentence text, language, and token strings all come from whatever
-// dataset JSON was uploaded via POST /dataset — untrusted input, not
+// dataset file was uploaded — untrusted input, not
 // baked into the app — so anything rendered into a cell goes through this
 // before it touches innerHTML.
 function escapeHtml(str) {

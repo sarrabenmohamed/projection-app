@@ -107,7 +107,7 @@ def test_project_umap_refits_only_when_dataset_changes(client, monkeypatch):
     client.get("/project?method=umap")
     assert len(fit_calls) == 1  # second call reuses the cached reducer
 
-    client.post("/dataset", json=copy.deepcopy(SAMPLE_DATASET))
+    client.post("/dataset/upload", content=json.dumps(SAMPLE_DATASET))
     client.get("/project?method=umap")
     assert len(fit_calls) == 2  # dataset change invalidates the cache
 

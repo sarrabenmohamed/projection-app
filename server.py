@@ -9,7 +9,6 @@ dataset_formats.py (JSONL/CSV parsing), projection.py, alignment_stats.py
 and languages.py.
 
 Endpoints:
-    POST /dataset                 load a dataset (JSON shape the frontend validates).
     POST /dataset/upload          load a JSON, JSONL or CSV file (?format=).
     POST /dataset/flores          embed (or load from cache) a FLORES-200 subset; POST /dataset/flores/cancel stops it.
     PATCH /dataset/flores         edit the loaded FLORES-200 dataset: add/remove languages, add/remove sentences. Embeds only
@@ -76,14 +75,6 @@ def _not_found(e: Exception) -> HTTPException:
 
 
 # ── Loading a dataset ────────────────────────────────────────────────────────
-
-@app.post("/dataset")
-async def set_dataset(raw: dict) -> dict:
-    try:
-        return store.replace(validate_and_normalize(raw))
-    except ValueError as e:
-        raise _bad_request(e) from e
-
 
 @app.post("/dataset/upload")
 async def upload_dataset(request: Request, format: str = "json") -> dict:
