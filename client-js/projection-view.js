@@ -64,6 +64,11 @@ export class ProjectionView {
     this.canvas.addEventListener('mousedown', event => this._onLensMouseDown(event));
     this.canvas.addEventListener('mousedown', event => this._onRotateMouseDown(event));
     this.canvas.addEventListener('mousedown', event => this._onAreaMouseDown(event));
+    // The canvas is absolutely positioned, so a window or layout resize leaves it at its old size
+    // and the uncovered strip ignores the mouse; follow the container instead.
+    new ResizeObserver(() => {
+      if (this.el.clientWidth && (this.el.clientWidth !== this._sizedWidth || this.el.clientHeight !== this._sizedHeight)) this.resize();
+    }).observe(this.el);
     this.canvas.addEventListener('contextmenu', event => event.preventDefault()); // right-drag is the box-select
   }
 
@@ -176,6 +181,8 @@ export class ProjectionView {
     this.canvas.style.width  = `${this.el.clientWidth}px`;
     this.canvas.style.height = `${this.el.clientHeight}px`;
     this.ctx.scale(dpr, dpr);
+    this._sizedWidth = this.el.clientWidth;
+    this._sizedHeight = this.el.clientHeight;
   }
 
   // Recomputes canvas/axes sizing for a new container size (e.g. after a
@@ -308,9 +315,15 @@ export class ProjectionView {
     window.addEventListener('mouseup', onUp);
   }
 
-  // In 3D a plain left-drag rotates, so panning moves to shift+drag.
+  // True when the pointer is over the cloud's bounding box on screen.
+  _insideBox(event) {
+    const hull = this.pointLayer.boxHull();
+    return !!hull && d3.polygonContains(hull, this._screenToLocal(event));
+  }
+
+  // In 3D a left-drag on the box rotates and anywhere else pans; shift+drag pans over the box too.
   _blocksPan(event) {
-    return this._lensHit(event) || (this.is3D && !event.shiftKey);
+    return this._lensHit(event) || (this.is3D && !event.shiftKey && this._insideBox(event));
   }
 
   // Counts as a click-suppressing drag once the pointer moved far enough.
@@ -321,7 +334,7 @@ export class ProjectionView {
   }
 
   _onRotateMouseDown(event) {
-    if (!this.is3D || event.button !== 0 || event.ctrlKey || event.shiftKey || this._lensHit(event)) return;
+    if (!this.is3D || event.button !== 0 || event.ctrlKey || event.shiftKey || this._lensHit(event) || !this._insideBox(event)) return;
     event.preventDefault();
     this.tooltip.hide();
     this._hoveredId = null;
@@ -478,7 +491,7 @@ export class ProjectionView {
       this.canvas.style.cursor = 'pointer';
     } else {
       this.tooltip.hide();
-      this.canvas.style.cursor = this.is3D ? 'grab' : 'default';
+      this.canvas.style.cursor = this.is3D && this._insideBox(event) ? 'grab' : 'default';
     }
   }
 
