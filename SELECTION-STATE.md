@@ -117,9 +117,11 @@ overall numbers only.
 point that shares `point`'s `groupKey` (its `pairId`) through
 `selectPoints`, then turns "Show selected" on, so the whole translation
 group is both selected and the only thing left at full opacity. It is a
-one-shot action, not a toggle: there is no per-pin translations flag,
-and it works with any number of pins. Untick "Show selected" to see the
-rest of the plot again.
+checkbox: `App._translationGroups` holds the followed `groupKey`s, and
+unticking it unpins that group's points. After an edit of the loaded
+dataset, points added to a followed group join the selection
+(`_followTranslations`); a group left with a single point is forgotten.
+Untick "Show selected" to see the rest of the plot again.
 
 **Show/Hide tokens** (`onToggleTokens(point)`): toggles
 `_detailState.get(point.id).tokens`/`tokenPoints`, independently per
@@ -228,7 +230,7 @@ One shared component (`client-js/actions-menu.js`'s `renderActionsMenu`,
 a render-a-dropdown-for-this-point-id function, not a class with its own
 selection state — `App`'s `_detailState` is the single source of truth
 it reads from and calls back into). One `Actions ▾` button per pinned
-row opens a popover: Select translations (an action), Tokens (a checkbox;
+row opens a popover: Select translations (a checkbox), Tokens (a checkbox;
 omitted if `!point.hasTokens`). The dropdown stays open
 across multiple clicks inside it (`openMenuId` module-level state in
 `actions-menu.js`) — closing only on an outside click or Escape

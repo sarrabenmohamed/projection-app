@@ -29,6 +29,8 @@ class App {
         onRowClick: row => this.onSelectRow(row),
         onSelectTranslations: point => this.onSelectTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
+        translationsOn: point => this._translationGroups.has(point.groupKey),
+        tokensUnavailable: () => (this._method() === 'umap' ? null : 'Tokens are placed into a UMAP layout; t-SNE has no way to add points to one.'),
         onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
         onClearSelection: () => this.clearSelection(),
         onSelectAll: points => this.selectPoints(points),
@@ -44,6 +46,7 @@ class App {
     this._fitId = null;             // which UMAP fit the plotted layout came from (token overlays are only valid within one)
     this._overlaidCount = 0;        // points placed into the layout rather than fitted
     this._selection = [];           // ordered array of pinned ids, insertion order
+    this._translationGroups = new Set();  // groupKeys whose translations are selected; points added to them later join the selection
     this._focusedId = null;
     this._detailState = new Map();  // id -> {tokens, tokenPoints}
     this._pinColors = new Map();    // id -> color string
@@ -123,12 +126,18 @@ class App {
     await this._refresh();
   }
 
+  _method() {
+    return document.getElementById('method-select').value;
+  }
+
   // UMAP and t-SNE take disjoint hyperparameters, so only the selected
-  // method's fields are shown.
+  // method's fields are shown. Editing the loaded dataset needs UMAP's
+  // out-of-sample placement; t-SNE has none, so it would refit and move everything.
   _syncParamVisibility() {
-    const umap = document.getElementById('method-select').value === 'umap';
+    const umap = this._method() === 'umap';
     document.getElementById('umap-params').hidden = !umap;
     document.getElementById('tsne-params').hidden = umap;
+    this.floresPanel.setEditBlocked(umap ? null : 't-SNE can’t add points to an existing layout, so every point would move. Switch to UMAP to edit, or load a new selection.');
   }
 
   // The option's own title doubles as an always-visible explanation, since
@@ -312,8 +321,7 @@ class App {
       controller.abort();
       this.backend.cancelFlores().catch(() => {});
     };
-    const size = `${config.lang_codes.length} languages × ${config.n_sentences} sentences`;
-    this._setLoading(true, editing ? `Updating the dataset to ${size} (only what's new is embedded)...` : `Embedding ${size} (first run can take minutes)...`, cancel);
+    this._setLoading(true, editing ? 'Updating dataset...' : 'Embedding...', cancel);
     try {
       await (editing ? this.backend.updateFlores(config, controller.signal) : this.backend.loadFlores(config, controller.signal));
     } catch (err) {
@@ -343,8 +351,8 @@ class App {
     const metric = document.getElementById('metric-select').value;
     const hyperparams = { ...(method === 'umap' ? this._umapParams() : this._tsneParams()), n_components: this._is3D() ? 3 : 2 };
     if (refit) hyperparams.refit = true;
-    this._setStatus(`Running ${method} (${metric})...`);
-    this._setLoading(true, `Running ${method} (${metric})...`);
+    this._setStatus(`Running ${method}...`);
+    this._setLoading(true, `Running ${method}...`);
 
     let meta, proj;
     try {
@@ -389,6 +397,7 @@ class App {
       }
     } else {
       this._selection = [];
+      this._translationGroups.clear();
       this._focusedId = null;
       this._detailState.clear();
       this._pinColors.clear();
@@ -439,6 +448,7 @@ class App {
       this.view.setShowPinnedOnly(this.table.isShowSelectedOnly());
       this._syncPins();
       if (droppedPins) this._refreshStats();
+      this._followTranslations();
     } else {
       this.langFilter.setLangs(meta.lang_codes);
       this.table.setPoints(this.points);
@@ -471,7 +481,7 @@ class App {
     const overlaid = this._overlaidCount;
     document.getElementById('overlay-note').hidden = overlaid === 0;
     if (overlaid === 0) return;
-    let text = `${overlaid} of ${total} points (dark outline) were placed into the existing layout instead of refitting it; nothing already plotted moved.`;
+    let text = `${overlaid} of ${total} points were placed into the existing layout instead of refitting it; nothing already plotted moved.`;
     if (overlaid > total - overlaid) text += ' Most points are overlaid; a refit gives a more faithful layout.';
     document.getElementById('overlay-note-text').textContent = text;
   }
@@ -604,6 +614,7 @@ class App {
   }
 
   clearSelection() {
+    this._translationGroups.clear();
     if (this._selection.length === 0) return;
     this._selection = [];
     this._focusedId = null;
@@ -636,21 +647,35 @@ class App {
     }, 150);
   }
 
-  // Pins every translation of `point` (all points sharing its pairId) and
-  // isolates the plot to the selection, so the whole group is both
-  // highlighted and selected — ready for the statistics panel.
+  // Toggles the selection of every translation of `point` (all points
+  // sharing its pairId). Turning it on also isolates the plot to the
+  // selection; the group stays followed, so a language added later joins it.
   onSelectTranslations(point) {
-    const group = this.points.filter(p => p.groupKey === point.groupKey);
+    const key = point.groupKey;
+    const group = this.points.filter(p => p.groupKey === key);
+    if (this._translationGroups.delete(key)) {
+      for (const p of group) if (this._detailState.has(p.id)) this._togglePin(p);
+      return;
+    }
+    this._translationGroups.add(key);
     this.selectPoints(group);
     this.table.setShowSelectedOnly(true);
     this._setShowSelectedOnly(true);
   }
 
+  // After an edit: the points added to a followed group join the selection;
+  // a group that no longer has translations is forgotten.
+  _followTranslations() {
+    for (const key of [...this._translationGroups]) {
+      const group = this.points.filter(p => p.groupKey === key);
+      if (group.length < 2) this._translationGroups.delete(key);
+      else this.selectPoints(group);
+    }
+  }
+
   // Tokens are independent per pinned point. Token projection only exists
-  // in the shared UMAP space (see backend/projection.py), so if
-  // the main view is on t-SNE this switches it to UMAP first — that runs
-  // _refresh({ keepState: true }), which keeps the selection (token points
-  // from the old fit are dropped).
+  // in the shared UMAP space (see backend/projection.py), so the action is
+  // unavailable while the main view is on t-SNE.
   async onToggleTokens(point) {
     const detail = this._detailState.get(point.id);
     if (!detail) return;
@@ -659,17 +684,6 @@ class App {
       detail.tokenPoints = [];
       this._syncPins();
       return;
-    }
-
-    const methodSelect = document.getElementById('method-select');
-    if (methodSelect.value !== 'umap') {
-      methodSelect.value = 'umap';
-      this._syncParamVisibility();
-      await this._refresh({ keepState: true });
-      const reselected = this.points.find(p => p.id === point.id);
-      if (!reselected || !this._detailState.has(point.id)) return;
-      point = reselected;
-      document.getElementById('status').textContent += ' · switched to UMAP to show tokens';
     }
 
     const metric = document.getElementById('metric-select').value;

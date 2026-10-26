@@ -10,7 +10,7 @@
 // clicked.
 let openMenuId = null; // at most one Actions menu open per container (keyed by `${ownerKey}:${point.id}`) at a time
 
-export function renderActionsMenu(point, detail, canTranslate, { onSelectTranslations, onToggleTokens }, ownerKey) {
+export function renderActionsMenu(point, detail, canTranslate, { onSelectTranslations, onToggleTokens, tokensUnavailable, translationsOn }, ownerKey) {
   const wrap = document.createElement('span');
   wrap.className = 'actions-menu';
 
@@ -26,6 +26,7 @@ export function renderActionsMenu(point, detail, canTranslate, { onSelectTransla
 
   menu.appendChild(_menuLine({
     label: 'Select translations',
+    checked: Boolean(translationsOn),
     disabled: !canTranslate,
     disabledTitle: 'No other points share this pairId',
     onToggle: () => onSelectTranslations(point),
@@ -35,7 +36,8 @@ export function renderActionsMenu(point, detail, canTranslate, { onSelectTransla
     menu.appendChild(_menuLine({
       label: 'Tokens',
       checked: detail.tokens,
-      disabled: false,
+      disabled: Boolean(tokensUnavailable),
+      disabledTitle: tokensUnavailable,
       onToggle: () => onToggleTokens(point),
     }));
   }
