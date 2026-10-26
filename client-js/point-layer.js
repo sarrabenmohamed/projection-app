@@ -33,6 +33,7 @@ const FAMILY_COLORS = [...d3.schemeTableau10.slice(0, 9), '#17becf'];
 // One hue per language: the family palette, then Paired and Dark2 for variety.
 const LANG_COLORS = [...FAMILY_COLORS, ...d3.schemePaired, ...d3.schemeDark2];
 const DEPTH_SIZE_RANGE = 0.35;  // 3D: nearest points drawn up to 35% bigger, farthest 35% smaller
+const HULL_GROWTH = 1.08;       // 3D: how far past the drawn points a press still rotates
 const DEPTH_FADE = 0.45;        // 3D: farthest points lose up to 45% opacity
 const DEFAULT_YAW = 0.6;
 const DEFAULT_PITCH = 0.35;
@@ -192,15 +193,72 @@ export class PointLayer {
   // Rotates d.p3 about the center (yaw about the vertical axis, then pitch
   // about the horizontal one) into the screen-plane x/y and depth.
   _project(d) {
+    const { x, y, depth } = this._rotate(d.p3);
+    d.x = x;
+    d.y = y;
+    d.depth = depth;
+  }
+
+  _rotate(p3) {
     const [cx, cy, cz] = this._center;
-    const x = d.p3[0] - cx, y = d.p3[1] - cy, z = d.p3[2] - cz;
+    const x = p3[0] - cx, y = p3[1] - cy, z = p3[2] - cz;
     const cosY = Math.cos(this._yaw), sinY = Math.sin(this._yaw);
     const cosP = Math.cos(this._pitch), sinP = Math.sin(this._pitch);
     const x1 = cosY * x + sinY * z;
     const z1 = -sinY * x + cosY * z;
-    d.x = x1;
-    d.y = cosP * y - sinP * z1;
-    d.depth = (sinP * y + cosP * z1) / this.radius;
+    return { x: x1, y: cosP * y - sinP * z1, depth: (sinP * y + cosP * z1) / this.radius };
+  }
+
+  _bounds() {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const d of this.points) for (let i = 0; i < 3; i++) {
+      lo[i] = Math.min(lo[i], d.p3[i]);
+      hi[i] = Math.max(hi[i], d.p3[i]);
+    }
+    return { lo, hi };
+  }
+
+  // Screen-plane (pre-zoom) position and depth of a raw 3D coordinate.
+  _screenOf(p3) {
+    const r = this._rotate(p3);
+    return { sx: this.baseXScale(r.x), sy: this.baseYScale(r.y), depth: r.depth };
+  }
+
+  // Outline of what is drawn in 3D (points and axes), slightly grown, for deciding
+  // whether a press is on the cloud (rotate) or beside it (pan). Pre-zoom space.
+  boxHull() {
+    if (this.dims !== 3 || !this.points.length || !this.baseXScale) return null;
+    const { lo, hi } = this._bounds();
+    const shown = this.points.map(d => [this.baseXScale(d.x), this.baseYScale(d.y)]);
+    for (const [a, b] of this._axisEnds(lo, hi)) shown.push([a.sx, a.sy], [b.sx, b.sy]);
+    const hull = d3.polygonHull(shown);
+    if (!hull) return null;
+    const [cx, cy] = d3.polygonCentroid(hull);
+    return hull.map(([x, y]) => [cx + (x - cx) * HULL_GROWTH, cy + (y - cy) * HULL_GROWTH]);
+  }
+
+  _axisEnds(lo, hi) {
+    return [0, 1, 2].map(i => {
+      const end = [lo[0], lo[1], lo[2]];
+      end[i] = hi[i];
+      return [this._screenOf([lo[0], lo[1], lo[2]]), this._screenOf(end)];
+    });
+  }
+
+  _drawAxes(ctx, transform) {
+    const { lo, hi } = this._bounds();
+    const k = transform.k;
+    ctx.save();
+    ctx.lineWidth = 2 / k;
+    ['#d93025', '#188038', '#1a73e8'].forEach((color, i) => {
+      const [a, b] = this._axisEnds(lo, hi)[i];
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(a.sx, a.sy);
+      ctx.lineTo(b.sx, b.sy);
+      ctx.stroke();
+    });
+    ctx.restore();
   }
 
   _applyRotation() {
@@ -387,6 +445,8 @@ export class PointLayer {
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.k, transform.k);
 
+    if (this.dims === 3) this._drawAxes(ctx, transform);
+
     const positions = fisheyeFocus ? this._computeFisheyePositions(fisheyeFocus, transform) : null;
     this._displayPositions = positions;
 
@@ -483,9 +543,8 @@ export class PointLayer {
     ctx.fillStyle = this._colorFor(d);
     ctx.fill();
     ctx.globalAlpha = alpha;
-    // A dark outline marks the points that were placed into the layout rather than fitted with it.
-    ctx.lineWidth = (hovered ? 1.5 : d.overlaid ? 1 : 0.5) / transform.k;
-    ctx.strokeStyle = hovered ? '#333' : d.overlaid ? '#555' : '#fff';
+    ctx.lineWidth = (hovered ? 1.5 : 0.5) / transform.k;
+    ctx.strokeStyle = hovered ? '#333' : '#fff';
     ctx.stroke();
     const pin = this._pinsById.get(d.id);
     if (pin) {

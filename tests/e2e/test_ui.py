@@ -96,9 +96,9 @@ def test_3d_view_rotates_and_still_hit_tests(ui):
 
     box = ui.canvas_box()
     yaw = ui.js("__app.view.pointLayer._yaw")
-    ui.page.mouse.move(box["x"] + 400, box["y"] + 200)
+    ui.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     ui.page.mouse.down()
-    ui.page.mouse.move(box["x"] + 550, box["y"] + 240, steps=6)
+    ui.page.mouse.move(box["x"] + box["width"] / 2 + 150, box["y"] + box["height"] / 2 + 40, steps=6)
     ui.page.mouse.up()
     assert ui.js("__app.view.pointLayer._yaw") != yaw
     assert ui.selection == ["de-1"]  # a rotate-drag is not a click
@@ -112,6 +112,24 @@ def test_3d_view_rotates_and_still_hit_tests(ui):
     ui.wait_for_status("umap")
     ui.settle()
     assert ui.js("__app.view.pointLayer.dims") == 2
+
+
+def test_3d_drag_outside_the_box_pans_instead_of_rotating(ui):
+    ui.load_sample()
+    ui.page.locator("#view3d-toggle").check()
+    ui.wait_for_status("(3D)")
+    ui.settle()
+    assert ui.js("__app.view.pointLayer.boxHull().length") >= 4
+
+    box = ui.canvas_box()
+    yaw = ui.js("__app.view.pointLayer._yaw")
+    pan = ui.js("__app.view.axes.transform.x")
+    ui.page.mouse.move(box["x"] + 8, box["y"] + 8)
+    ui.page.mouse.down()
+    ui.page.mouse.move(box["x"] + 60, box["y"] + 40, steps=5)
+    ui.page.mouse.up()
+    assert ui.js("__app.view.pointLayer._yaw") == yaw
+    assert ui.js("__app.view.axes.transform.x") != pan
 
 
 def test_fisheye_hit_tests_at_displaced_positions(ui):
@@ -177,3 +195,27 @@ def test_cancel_stops_a_running_flores_load(ui):
     assert ui.page.locator("#flores-load-button").is_enabled()
     for route in pending:
         route.abort()
+
+
+def test_canvas_follows_the_window_size(ui):
+    ui.load_sample()
+    ui.page.set_viewport_size({"width": 1300, "height": 1200})
+    ui.page.wait_for_function(
+        "() => { const r = document.querySelector('#projection').getBoundingClientRect();"
+        " return document.querySelector('#projection canvas').getBoundingClientRect().height === r.height; }"
+    )
+    assert ui.js("document.querySelector('#projection canvas').getBoundingClientRect().bottom") == ui.js(
+        "document.querySelector('#projection').getBoundingClientRect().bottom"
+    )
+
+
+def test_tokens_action_is_disabled_on_tsne_instead_of_switching_to_umap(ui):
+    ui.load_sample()
+    ui.page.select_option("#method-select", "tsne")
+    ui.wait_for_status("tsne")
+    ui.settle()
+    ui.page.mouse.click(*ui.screen_of("de-1"))
+    ui.page.locator(".actions-menu-btn").first.click()
+    line = ui.page.locator(".actions-menu-line", has_text="Tokens")
+    assert "actions-menu-disabled" in line.get_attribute("class")
+    assert ui.js("document.getElementById('method-select').value") == "tsne"
