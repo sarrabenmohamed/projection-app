@@ -280,7 +280,8 @@ def test_stats_summarizes_selection_by_language(client):
 
 def test_stats_overall_cosine_splits_within_and_cross_language(client):
     body = client.post("/stats", json={"ids": ["en-0", "en-2", "de-0"]}).json()
-    vec = {p["id"]: np.array(p["vector"]) for p in SAMPLE_DATASET["points"]}
+    centre = np.mean([p["vector"] for p in SAMPLE_DATASET["points"]], axis=0)
+    vec = {p["id"]: np.array(p["vector"]) - centre for p in SAMPLE_DATASET["points"]}
 
     def cos(a, b):
         return float(vec[a] @ vec[b] / np.linalg.norm(vec[a]) / np.linalg.norm(vec[b]))
@@ -294,7 +295,8 @@ def test_stats_language_pair_compares_parallel_to_non_parallel(client):
     (pair,) = body["language_pairs"]
     assert (pair["a"], pair["b"]) == ("de", "en")
     assert pair["n_parallel"] == 2
-    vec = {p["id"]: np.array(p["vector"]) for p in SAMPLE_DATASET["points"]}
+    centre = np.mean([p["vector"] for p in SAMPLE_DATASET["points"]], axis=0)
+    vec = {p["id"]: np.array(p["vector"]) - centre for p in SAMPLE_DATASET["points"]}
 
     def cos(a, b):
         return float(vec[a] @ vec[b] / np.linalg.norm(vec[a]) / np.linalg.norm(vec[b]))
@@ -574,3 +576,12 @@ def test_dataset_info_reports_loaded_and_empty(client, monkeypatch):
     monkeypatch.setattr(server.store, "data", None)
     res = client.get("/dataset/info")
     assert res.status_code == 200 and res.json() == {"loaded": False}
+
+
+def test_stats_cosines_are_centred_so_a_shared_offset_does_not_flatten_them(client):
+    # Every raw vector gets the same large offset, as in real contextual embeddings.
+    offset = [100.0] * len(SAMPLE_DATASET["points"][0]["vector"])
+    shifted = {**SAMPLE_DATASET, "points": [{**p, "vector": [a + b for a, b in zip(p["vector"], offset)]} for p in SAMPLE_DATASET["points"]]}
+    plain = alignment_stats.selection_stats(SAMPLE_DATASET, ["en-0", "en-2", "de-0"])
+    flat = alignment_stats.selection_stats(shifted, ["en-0", "en-2", "de-0"])
+    assert flat["overall"]["cross_language"] == pytest.approx(plain["overall"]["cross_language"])

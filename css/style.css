@@ -222,12 +222,6 @@ body.resizing-y { cursor: row-resize; }
 #stats .stats-card { min-width: 96px; padding: 4px 10px; background: #f7f7f7; border: 1px solid #eee; border-radius: 4px; }
 #stats .stats-card-value { font-size: 0.95em; font-weight: 600; color: #333; }
 #stats .stats-card-label { font-size: 0.7em; color: #777; white-space: nowrap; }
-#stats .stats-table-wrap { flex: 1; overflow: auto; }
-#stats .stats-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
-#stats .stats-table thead { position: sticky; top: 0; background: #f7f7f7; }
-#stats .stats-table th { text-align: left; padding: 5px 8px; border-bottom: 2px solid #ddd; cursor: pointer; white-space: nowrap; }
-#stats .stats-table th:hover { background: #eee; }
-#stats .stats-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-variant-numeric: tabular-nums; }
 
 #ui-tooltip {
   position: fixed; z-index: 1000; max-width: 260px; padding: 6px 9px;
