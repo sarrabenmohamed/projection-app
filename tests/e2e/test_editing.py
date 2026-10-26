@@ -208,3 +208,39 @@ def test_an_uploaded_dataset_only_offers_loading(editor):
     assert page.is_hidden("#flores-mode")
     assert page.inner_text("#flores-load-button") == "Load FLORES-200"
     assert page.is_enabled("#flores-model")
+
+
+def test_editing_and_tokens_are_unavailable_on_tsne(editor):
+    editor.page.select_option("#method-select", "tsne")
+    editor.wait_for_status("tsne")
+    editor.settle()
+    editor.page.fill("#flores-langs", ", ".join(BASE + ["spa_Latn"]))
+    assert editor.page.locator("#flores-load-button").is_disabled()
+    assert "UMAP" in editor.page.locator("#flores-diff").inner_text()
+
+    editor.page.locator("#flores-mode button[data-mode=load]").click()
+    assert editor.page.locator("#flores-load-button").is_enabled()
+
+    editor.page.select_option("#method-select", "umap")
+    editor.wait_for_status("umap")
+    editor.page.locator("#flores-mode button[data-mode=edit]").click()
+    assert editor.page.locator("#flores-load-button").is_enabled()
+
+
+def test_selected_translations_follow_added_languages_and_can_be_unselected(editor):
+    page = editor.page
+    page.mouse.click(*editor.screen_of("eng_Latn-0"))
+    assert editor.selection == ["eng_Latn-0"]
+    page.locator(".actions-menu-btn").first.click()
+    page.locator(".actions-menu-line", has_text="Select translations").first.click()
+    assert len(editor.selection) == len(BASE)
+
+    update_to(editor, BASE + ["spa_Latn"])
+    page.wait_for_function("__app.points.length === %d" % ((len(BASE) + 1) * SENTENCES))
+    editor.settle()
+    assert len(editor.selection) == len(BASE) + 1
+    assert any(i.startswith("spa_Latn") for i in editor.selection)
+
+    page.locator(".actions-menu-btn").first.click()
+    page.locator(".actions-menu-line", has_text="Select translations").first.click()
+    assert editor.selection == []

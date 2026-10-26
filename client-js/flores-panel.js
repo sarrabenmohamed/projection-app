@@ -42,6 +42,7 @@ export class FloresPanel {
     this._signature = null;  // of _loaded, so the form is only reset when the dataset really changed
     this._mode = 'load';
     this._busy = false;
+    this._editBlocked = null; // why editing is unavailable right now, or null
 
     this._langs = byId('flores-langs');
     this._n = byId('flores-n');
@@ -84,6 +85,11 @@ export class FloresPanel {
 
   setBusy(busy) {
     this._busy = busy;
+    this._render();
+  }
+
+  setEditBlocked(reason) {
+    this._editBlocked = reason;
     this._render();
   }
 
@@ -131,9 +137,9 @@ export class FloresPanel {
     const { lang_codes, n_sentences } = this._request();
     const edit = editing ? describeEdit(this._loaded, lang_codes, n_sentences) : null;
     this._diff.hidden = !editing;
-    if (editing) this._diff.textContent = summarize(edit);
+    if (editing) this._diff.textContent = this._editBlocked || summarize(edit);
 
     this._button.textContent = editing ? 'Update dataset' : 'Load FLORES-200';
-    this._button.disabled = this._busy || (editing && !edit.changed);
+    this._button.disabled = this._busy || (editing && (this._editBlocked !== null || !edit.changed));
   }
 }

@@ -44,11 +44,13 @@ function escapeHtml(str) {
 }
 
 export class DataTable {
-  constructor({ containerId }, { onRowClick, onSelectTranslations, onToggleTokens, onToggleShowSelectedOnly, onClearSelection, onSelectAll }) {
+  constructor({ containerId }, { onRowClick, onSelectTranslations, onToggleTokens, tokensUnavailable, translationsOn, onToggleShowSelectedOnly, onClearSelection, onSelectAll }) {
     this.container = document.getElementById(containerId);
     this._onRowClick = onRowClick;
     this._onSelectTranslations = onSelectTranslations;
     this._onToggleTokens = onToggleTokens;
+    this._translationsOn = translationsOn;  // point => whether its translations are selected
+    this._tokensUnavailable = tokensUnavailable;  // () => reason string, or null when tokens can be shown
     this._onToggleShowSelectedOnly = onToggleShowSelectedOnly;
     this._onClearSelection = onClearSelection;
     this._onSelectAll = onSelectAll;
@@ -329,6 +331,8 @@ export class DataTable {
       actionsCell.appendChild(renderActionsMenu(p, pin.detail, canTranslate, {
         onSelectTranslations: pt => this._onSelectTranslations(pt),
         onToggleTokens: pt => this._onToggleTokens(pt),
+        tokensUnavailable: this._tokensUnavailable?.(),
+        translationsOn: this._translationsOn?.(p),
       }, 'table'));
     }
 
