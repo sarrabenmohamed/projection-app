@@ -56,12 +56,12 @@ refined with UMAP's layout optimiser with the fitted points held fixed, so a
 new language lands among the languages it resembles in the original space
 (the tokens of such a sentence are placed the same way, so they land next to it).
 Treat their position as an approximation: they were not part of the fit
-(they have a **dark outline**), so distances
+so distances
 between them and fitted points say less than distances within the fitted
 set. A note under the status line says how many points were overlaid; **Refit**
 there (or in *Method parameters*) fits UMAP on all points together again,
 which moves everything. Changing the method, metric, 2D/3D or the parameters
-also refits. t-SNE has no out-of-sample step, so it always refits.
+also refits. t-SNE has no out-of-sample step, so it always refits: while t-SNE is selected, *Edit loaded* and the *Tokens* action are disabled (switch to UMAP to use them).
 
 ## Demo
 
@@ -91,10 +91,11 @@ feature (translations, tokens) has something to show.
   Translations are matched by `pairId`; without it only the overall
   numbers are shown. Collapse it with its ▾ button.
 - Each pinned point gets its own **Actions ▾** menu (in the data table)
-  — independently toggle its tokens, or **Select translations** to pin
-  every point sharing its `pairId` and isolate the plot to them. Tokens
-  overlay that sentence's token embeddings in the same UMAP space
-  (auto-switches method to UMAP if needed).
+  — independently toggle its tokens, or **Select translations** (a checkbox) to pin
+  every point sharing its `pairId` and isolate the plot to them; untick it
+  to unpin them again, and a language added later joins the group. Tokens
+  overlay that sentence's token embeddings in the same UMAP space (not
+  available with t-SNE).
 - **Show selected** (data table) filters the table down to just the
   pinned rows *and* isolates the plot to just those points. Also disables the fisheye lens (a lens over an isolated,
   already-decluttered view isn't useful) until it's turned back off.
@@ -123,8 +124,9 @@ feature (translations, tokens) has something to show.
   neutral gray. The modes are mutually exclusive.
 - **Select an area** — right-drag (or Ctrl+drag, for trackpads) on the plot
   to draw a box; every visible point inside it is added to the selection.
-- **3D view** — re-projects into three dimensions. Drag to rotate, Shift+drag
-  to pan, scroll to zoom; **Reset view** restores the default angle. Nearer
+- **3D view** — re-projects into three dimensions. Labelled axes
+  frame the cloud: drag on the cloud to rotate, drag outside it (or Shift+drag) to
+  pan, scroll to zoom; **Reset view** restores the default angle. Nearer
   points are drawn larger and more opaque. Selection, colours, the fisheye
   lens, box-select and tokens all work in 3D; switching 2D ↔ 3D keeps the
   selection (token overlays are dropped, as for any refit).
