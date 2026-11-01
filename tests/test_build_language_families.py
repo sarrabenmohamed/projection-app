@@ -1,4 +1,4 @@
-from scripts import build_language_families as blf
+from backend import build_language_families as blf
 
 
 def test_parse_newick_and_leaf_paths_report_ancestors_root_first():

@@ -35,8 +35,7 @@ fifth the size of the JSON it replaced, and memory-mapped, so loading from the
 cache takes milliseconds), with as many sentences as have been embedded so far,
 so a load only embeds what is new: a new language adds a folder and more
 sentences extend the existing ones. Caches from the old JSON format are
-converted on first use; `python scripts/migrate_cache.py [--delete]` converts
-them all up front and checks every number. **Cancel** (or Esc) in the
+converted on first use. **Cancel** (or Esc) in the
 loading overlay stops a running embedding job; the current dataset is kept.
 
 ### Editing the loaded dataset
@@ -168,7 +167,7 @@ covered. ISO 639-1 codes (`de`) and English names (`German`) also resolve,
 via aliases built from the SIL ISO 639-3 table. Indo-European is split
 into its main branches (Germanic, Romance, Slavic, ...); other families
 use Glottolog's top level. To refresh the file:
-`python3 scripts/build_language_families.py`.
+`python3 backend/build_language_families.py`.
 
 For your own language codes, add a `lang_families` map (or a per-point
 `family`) to the uploaded JSON — see the "?" next to *Load embeddings

@@ -4,8 +4,8 @@ CC BY 4.0), plus aliases (ISO 639-1 codes and English names) so inputs such
 as "en" or "German" resolve too. The server only reads the generated JSON,
 so there is no runtime dependency on the sources; rerun this to refresh it:
 
-    python3 scripts/build_language_families.py                # downloads the data
-    python3 scripts/build_language_families.py --source DIR   # DIR has languages.csv, classification.nex, iso-639-3.tab
+    python3 backend/build_language_families.py                # downloads the data
+    python3 backend/build_language_families.py --source DIR   # DIR has languages.csv, classification.nex, iso-639-3.tab
 
 Standard library only.
 """
