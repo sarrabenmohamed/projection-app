@@ -11,13 +11,16 @@ import { LangFilter } from './lang-filter.js';
 import { installTooltips } from './help-tips.js';
 import { StatsView } from './stats-view.js';
 import { installActionsMenuOutsideClickHandler } from './actions-menu.js';
-import { makeResizable } from './resizer.js';
-
-const PANEL_IDS = ['sidebar', 'projection-panel', 'data-table-panel', 'stats-panel'];
+import { PanelLayout } from './panel-layout.js';
 
 // Same origin by default (server.py serves this page); ?backend=http://host:port overrides it.
 const BACKEND_URL = new URLSearchParams(location.search).get('backend') ?? '';
 const PIN_PALETTE = d3.schemeTableau10;
+
+const byId = id => document.getElementById(id);
+const on = (id, event, handler) => byId(id).addEventListener(event, handler);
+const TOKENS_NEED_UMAP = 'Tokens are placed into a UMAP layout; t-SNE has no way to add points to one.';
+const EDIT_NEEDS_UMAP = 't-SNE can’t add points to an existing layout, so every point would move. Switch to UMAP to edit, or load a new selection.';
 
 class App {
   constructor() {
@@ -30,7 +33,7 @@ class App {
         onSelectTranslations: point => this.onSelectTranslations(point),
         onToggleTokens: point => this.onToggleTokens(point),
         translationsOn: point => this._translationGroups.has(point.groupKey),
-        tokensUnavailable: () => (this._method() === 'umap' ? null : 'Tokens are placed into a UMAP layout; t-SNE has no way to add points to one.'),
+        tokensUnavailable: () => (this._method() === 'umap' ? null : TOKENS_NEED_UMAP),
         onToggleShowSelectedOnly: enabled => this._setShowSelectedOnly(enabled),
         onClearSelection: () => this.clearSelection(),
         onSelectAll: points => this.selectPoints(points),
@@ -56,78 +59,61 @@ class App {
 
   async init() {
     this.view = new ProjectionView('projection');
+    this.layout = new PanelLayout({ onProjectionResized: () => this.view?.resize() });
 
-    document.getElementById('file-input')
-      .addEventListener('change', e => this._onFileSelected(e.target.files[0]));
-    document.getElementById('method-select')
-      .addEventListener('change', () => { this._syncParamVisibility(); this._refresh({ keepState: true }); });
-    this._syncParamVisibility();
-    document.getElementById('metric-select')
-      .addEventListener('change', () => { this._syncMetricDescription(); this._refresh({ keepState: true }); });
-    this._syncMetricDescription();
-    // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
-    // auto-refresh on change — editing more than one before blurring away
-    // would fire a _refresh() per field, and an in-flight response's
-    // "reflect the effective params back" step (see _loadDataset) could
-    // then clobber a value the user typed into another field afterward.
-    // Refit is the one explicit trigger for all of them.
-    document.getElementById('refit-button')
-      .addEventListener('click', () => this._refit());
-    document.getElementById('overlay-refit')
-      .addEventListener('click', () => this._refit());
-    document.getElementById('overlay-fit-view')
-      .addEventListener('click', () => this.view.fitView());
-    document.getElementById('label-select')
-      .addEventListener('change', e => this.view.setLabelBy(e.target.value));
-    document.getElementById('fisheye-toggle')
-      .addEventListener('change', e => this._setFisheye(e.target.checked));
-    document.getElementById('fisheye-size')
-      .addEventListener('input', e => {
-        document.getElementById('fisheye-size-value').textContent = e.target.value;
-        this.view.setFisheyeRadius(Number(e.target.value));
-      });
-    document.getElementById('fisheye-style-select')
-      .addEventListener('change', e => this.view.setFisheyeStyle(e.target.value));
-    document.getElementById('color-mode-select')
-      .addEventListener('change', e => this._setColorMode(e.target.value));
-    this._setColorMode(document.getElementById('color-mode-select').value);
-    document.getElementById('view3d-toggle')
-      .addEventListener('change', e => this._setView3D(e.target.checked));
-    document.getElementById('view3d-reset')
-      .addEventListener('click', () => this.view.resetView());
-    this.view.setAreaSelectHandler(points => this.selectPoints(points));
-    document.getElementById('loading-cancel')
-      .addEventListener('click', () => this._cancelHandler?.());
-    window.addEventListener('keydown', e => {
-      if (e.key === 'Escape') this._cancelHandler?.();
-    });
-    document.getElementById('format-help-toggle')
-      .addEventListener('click', () => this._toggleFormatHelp());
-    document.getElementById('projection-caveats-toggle')
-      .addEventListener('click', () => this._toggleProjectionCaveats());
-    document.getElementById('projection-fullscreen-btn')
-      .addEventListener('click', () => this._toggleFullscreen('projection-panel'));
-    document.getElementById('data-table-fullscreen-btn')
-      .addEventListener('click', () => this._toggleFullscreen('data-table-panel'));
-    document.getElementById('stats-fullscreen-btn')
-      .addEventListener('click', () => this._toggleFullscreen('stats-panel'));
+    this._bindDatasetControls();
+    this._bindViewControls();
+    this._bindLoadingOverlay();
     installTooltips();
-    this._initPanels();
-    const resizeView = () => this.view.resize();
-    const resizable = (handleId, panelId, storageKey, options) => makeResizable({
-      handle: document.getElementById(handleId), panel: document.getElementById(panelId),
-      storageKey, onResize: resizeView, ...options,
-    });
-    resizable('data-table-resize-handle', 'data-table-panel', 'projection-app-table-height', { axis: 'y', sign: -1, min: 100 });
-    resizable('stats-resize-handle', 'stats-panel', 'projection-app-stats-height', { axis: 'y', sign: -1, min: 100 });
-    resizable('sidebar-resize-handle', 'sidebar', 'projection-app-sidebar-width', { axis: 'x', sign: 1, min: 200, max: 600 });
+    this.layout.init();
     installActionsMenuOutsideClickHandler();
 
     await this._refresh();
   }
 
+  _bindDatasetControls() {
+    on('file-input', 'change', e => this._onFileSelected(e.target.files[0]));
+    on('method-select', 'change', () => { this._syncParamVisibility(); this._refresh({ keepState: true }); });
+    this._syncParamVisibility();
+    on('metric-select', 'change', () => { this._syncMetricDescription(); this._refresh({ keepState: true }); });
+    this._syncMetricDescription();
+    // n_neighbors/min_dist/perplexity/learning_rate deliberately do NOT
+    // auto-refresh on change — editing more than one before blurring away
+    // would fire a _refresh() per field, and an in-flight response's
+    // "reflect the effective params back" step (see _reflectParams) could
+    // then clobber a value the user typed into another field afterward.
+    // Refit is the one explicit trigger for all of them.
+    on('refit-button', 'click', () => this._refit());
+    on('overlay-refit', 'click', () => this._refit());
+    on('overlay-fit-view', 'click', () => this.view.fitView());
+    on('view3d-toggle', 'change', e => this._setView3D(e.target.checked));
+    on('format-help-toggle', 'click', () => this._toggleDisplay('format-help'));
+    on('projection-caveats-toggle', 'click', () => this._toggleDisplay('projection-caveats'));
+  }
+
+  _bindViewControls() {
+    on('label-select', 'change', e => this.view.setLabelBy(e.target.value));
+    on('fisheye-toggle', 'change', e => this._setFisheye(e.target.checked));
+    on('fisheye-size', 'input', e => {
+      byId('fisheye-size-value').textContent = e.target.value;
+      this.view.setFisheyeRadius(Number(e.target.value));
+    });
+    on('fisheye-style-select', 'change', e => this.view.setFisheyeStyle(e.target.value));
+    on('color-mode-select', 'change', e => this._setColorMode(e.target.value));
+    this._setColorMode(byId('color-mode-select').value);
+    on('view3d-reset', 'click', () => this.view.resetView());
+    this.view.setAreaSelectHandler(points => this.selectPoints(points));
+  }
+
+  _bindLoadingOverlay() {
+    on('loading-cancel', 'click', () => this._cancelHandler?.());
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') this._cancelHandler?.();
+    });
+  }
+
   _method() {
-    return document.getElementById('method-select').value;
+    return byId('method-select').value;
   }
 
   // UMAP and t-SNE take disjoint hyperparameters, so only the selected
@@ -135,29 +121,29 @@ class App {
   // out-of-sample placement; t-SNE has none, so it would refit and move everything.
   _syncParamVisibility() {
     const umap = this._method() === 'umap';
-    document.getElementById('umap-params').hidden = !umap;
-    document.getElementById('tsne-params').hidden = umap;
-    this.floresPanel.setEditBlocked(umap ? null : 't-SNE can’t add points to an existing layout, so every point would move. Switch to UMAP to edit, or load a new selection.');
+    byId('umap-params').hidden = !umap;
+    byId('tsne-params').hidden = umap;
+    this.floresPanel.setEditBlocked(umap ? null : EDIT_NEEDS_UMAP);
   }
 
   // The option's own title doubles as an always-visible explanation, since
   // hover text on <option> isn't shown by every browser.
   _syncMetricDescription() {
-    const select = document.getElementById('metric-select');
-    document.getElementById('metric-description').textContent = select.selectedOptions[0].title;
+    const select = byId('metric-select');
+    byId('metric-description').textContent = select.selectedOptions[0].title;
   }
 
   _umapParams() {
     return {
-      n_neighbors: document.getElementById('umap-n-neighbors').value,
-      min_dist: document.getElementById('umap-min-dist').value,
+      n_neighbors: byId('umap-n-neighbors').value,
+      min_dist: byId('umap-min-dist').value,
     };
   }
 
   _tsneParams() {
     return {
-      perplexity: document.getElementById('tsne-perplexity').value,
-      learning_rate: document.getElementById('tsne-learning-rate').value,
+      perplexity: byId('tsne-perplexity').value,
+      learning_rate: byId('tsne-learning-rate').value,
     };
   }
 
@@ -165,102 +151,29 @@ class App {
   // picked in the language filter, so the picker is only shown for it.
   _setColorMode(mode) {
     this.view.setColorMode(mode);
-    document.getElementById('lang-picker').hidden = mode !== 'custom';
+    byId('lang-picker').hidden = mode !== 'custom';
     this._renderColorLegend();
   }
 
   _is3D() {
-    return document.getElementById('view3d-toggle').checked;
+    return byId('view3d-toggle').checked;
   }
 
   // Switching dimensionality re-projects the loaded dataset (keeping the
   // selection and colours), since 2D and 3D are separate fits.
   _setView3D(enabled) {
-    document.getElementById('view3d-options').hidden = !enabled;
+    byId('view3d-options').hidden = !enabled;
     this._refresh({ keepState: true });
   }
 
   // The lens size/style controls only matter while the lens is on.
   _setFisheye(enabled) {
     this.view.setFisheyeEnabled(enabled);
-    document.getElementById('fisheye-options').hidden = !enabled;
+    byId('fisheye-options').hidden = !enabled;
   }
 
-  // Every view (sidebar, projection, data table, statistics) can be
-  // collapsed to just its header bar; the choice persists in localStorage.
-  // Collapsing never removes the header, so there is always a way back.
-  _initPanels() {
-    const STORAGE_KEY = 'projection-app-collapsed';
-    let saved = [];
-    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { saved = []; }
-    this._collapsed = new Set(Array.isArray(saved) ? saved.filter(id => PANEL_IDS.includes(id)) : []);
-    this._saveCollapsed = () => localStorage.setItem(STORAGE_KEY, JSON.stringify([...this._collapsed]));
-
-    for (const btn of document.querySelectorAll('[data-collapse]')) {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.collapse;
-        if (this._collapsed.has(id)) this._collapsed.delete(id); else this._collapsed.add(id);
-        this._saveCollapsed();
-        this._applyLayout();
-      });
-    }
-    this._applyLayout();
-  }
-
-  // Single place that turns collapsed/hidden state into classes: the
-  // projection fills spare space when expanded, otherwise the topmost
-  // expanded view does, so a collapsed panel never leaves a blank gap.
-  _applyLayout() {
-    const isOpen = id => !this._collapsed.has(id) && !document.getElementById(id).classList.contains('hidden');
-    for (const id of PANEL_IDS) {
-      const collapsed = this._collapsed.has(id);
-      document.getElementById(id).classList.toggle('collapsed', collapsed);
-      const btn = document.querySelector(`[data-collapse="${id}"]`);
-      btn.textContent = collapsed ? '▸' : (id === 'sidebar' ? '◂' : '▾');
-      btn.title = collapsed ? 'Expand' : 'Collapse';
-      btn.setAttribute('aria-expanded', String(!collapsed));
-    }
-    const viewIds = ['projection-panel', 'data-table-panel', 'stats-panel'];
-    const growId = viewIds.find(isOpen);
-    for (const id of viewIds) {
-      document.getElementById(id).classList.toggle('grow', id === growId && id !== 'projection-panel');
-    }
-    this._updateResizeHandleVisibility();
-    if (this.view && isOpen('projection-panel')) this.view.resize();
-  }
-
-  // Toggles `panelId` to fill #main (hiding every other view-panel), or
-  // brings the others back (each in whatever collapsed state it had).
-  _toggleFullscreen(panelId) {
-    const viewIds = ['projection-panel', 'data-table-panel', 'stats-panel'];
-    const panel = document.getElementById(panelId);
-    const turningOn = !panel.classList.contains('fullscreen');
-
-    for (const id of viewIds) {
-      if (id !== panelId) document.getElementById(id).classList.toggle('hidden', turningOn);
-    }
-    panel.classList.toggle('fullscreen', turningOn);
-    if (turningOn && this._collapsed.delete(panelId)) this._saveCollapsed();
-    this._applyLayout();
-  }
-
-  // The resize handle only makes sense when both panels it sits between
-  // are actually on screen to trade space with each other.
-  _updateResizeHandleVisibility() {
-    const open = id => !this._collapsed.has(id) && !document.getElementById(id).classList.contains('hidden');
-    const fixedHeight = id => open(id) && !document.getElementById(id).classList.contains('grow');
-    document.getElementById('data-table-resize-handle').classList.toggle('hidden', !(open('projection-panel') && fixedHeight('data-table-panel')));
-    document.getElementById('sidebar-resize-handle').classList.toggle('hidden', this._collapsed.has('sidebar'));
-    document.getElementById('stats-resize-handle').classList.toggle('hidden', !((open('projection-panel') || open('data-table-panel')) && fixedHeight('stats-panel')));
-  }
-
-  _toggleFormatHelp() {
-    const el = document.getElementById('format-help');
-    el.style.display = el.style.display === 'block' ? 'none' : 'block';
-  }
-
-  _toggleProjectionCaveats() {
-    const el = document.getElementById('projection-caveats');
+  _toggleDisplay(id) {
+    const el = byId(id);
     el.style.display = el.style.display === 'block' ? 'none' : 'block';
   }
 
@@ -269,10 +182,10 @@ class App {
   // text, since a UMAP/t-SNE refit or a token projection can take a while.
   // onCancel, when given, shows a Cancel button (and arms Escape) that calls it.
   _setLoading(isLoading, message, onCancel = null) {
-    document.getElementById('loading-overlay').classList.toggle('visible', isLoading);
-    if (isLoading) document.getElementById('loading-text').textContent = message;
+    byId('loading-overlay').classList.toggle('visible', isLoading);
+    if (isLoading) byId('loading-text').textContent = message;
     this._cancelHandler = isLoading ? onCancel : null;
-    document.getElementById('loading-cancel').hidden = !this._cancelHandler;
+    byId('loading-cancel').hidden = !this._cancelHandler;
   }
 
   _onFileSelected(file) {
@@ -298,7 +211,7 @@ class App {
   }
 
   _setStatus(text, isError = false) {
-    const el = document.getElementById('status');
+    const el = byId('status');
     el.textContent = text;
     el.classList.toggle('error', isError);
   }
@@ -337,7 +250,7 @@ class App {
     }
     this.floresPanel.setBusy(false);
     this._setLoading(false);
-    document.getElementById('file-input').value = '';
+    byId('file-input').value = '';
     this._refresh({ keepState: editing });
   }
 
@@ -347,8 +260,8 @@ class App {
   // different dataset always starts clean. refit fits UMAP on every point
   // again instead of placing the points added since the last fit into its layout.
   async _refresh({ keepState = false, refit = false } = {}) {
-    const method = document.getElementById('method-select').value;
-    const metric = document.getElementById('metric-select').value;
+    const method = byId('method-select').value;
+    const metric = byId('metric-select').value;
     const hyperparams = { ...(method === 'umap' ? this._umapParams() : this._tsneParams()), n_components: this._is3D() ? 3 : 2 };
     if (refit) hyperparams.refit = true;
     this._setStatus(`Running ${method}...`);
@@ -376,8 +289,7 @@ class App {
   }
 
   _loadDataset(meta, proj, keepState = false) {
-    const hint = document.getElementById('projection-hint');
-    if (hint) hint.remove();
+    byId('projection-hint')?.remove();
 
     // keepState only holds for the same dataset (re-projected or edited), which
     // still has some of the points.
@@ -388,56 +300,20 @@ class App {
 
     if (keep) {
       droppedPins = this._dropVanishedPins(new Set(meta.points.map(p => p.id)));
-      if (proj.fit_id == null || proj.fit_id !== this._fitId) {
-        // Token points were projected into the previous fit's space.
-        for (const detail of this._detailState.values()) {
-          detail.tokens = false;
-          detail.tokenPoints = [];
-        }
-      }
+      if (!sameLayout) this._forgetTokenOverlays(); // token points were projected into the previous fit's space
     } else {
-      this._selection = [];
-      this._translationGroups.clear();
-      this._focusedId = null;
-      this._detailState.clear();
-      this._pinColors.clear();
-      this.view.setPinnedPoints([]);
-      this.view.setTokenOverlays(new Map());
-      this._refreshStats();
-      this._setShowSelectedOnly(false); // DataTable.setPoints() below resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
+      this._resetSelection();
     }
 
-    const coordsById = new Map(proj.points.map(p => [p.id, p]));
-    this.points = meta.points.map(p => {
-      const c = coordsById.get(p.id);
-      return {
-        id: p.id, lang: p.lang, text: p.text, pairId: p.pairId, family: p.family,
-        hasTokens: p.hasTokens, tokenTexts: p.tokenTexts,
-        // no pairId at all -> each point is its own group, so it isolates alone
-        groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
-        x: c.x, y: c.y, z: c.z, overlaid: Boolean(c.overlaid),
-      };
-    });
+    this.points = this._buildPoints(meta, proj);
     this._fitId = proj.fit_id;
     this._overlaidCount = proj.n_overlaid || 0;
 
-    document.getElementById('status').textContent =
+    byId('status').textContent =
       `${meta.points.length} points · ${meta.lang_codes.length} languages · ${meta.model} (${meta.layer} layer, ${meta.pooling}-pooled) · ${proj.method}${proj.n_components === 3 ? ' (3D)' : ''}`;
     this._renderOverlayNote(meta.points.length);
     this.floresPanel.setDataset(meta);
-
-    // The backend clamps out-of-range hyperparams (e.g. n_neighbors/perplexity
-    // past the dataset's point count) — reflect whatever it actually used back
-    // into the inputs so they never silently disagree with the plot.
-    if (proj.params) {
-      if (proj.method === 'umap') {
-        document.getElementById('umap-n-neighbors').value = proj.params.n_neighbors;
-        document.getElementById('umap-min-dist').value = proj.params.min_dist;
-      } else {
-        document.getElementById('tsne-perplexity').value = proj.params.perplexity;
-        document.getElementById('tsne-learning-rate').value = proj.params.learning_rate === 'auto' ? '' : proj.params.learning_rate;
-      }
-    }
+    this._reflectParams(proj);
 
     if (keep) {
       this.langFilter.setLangs(meta.lang_codes, { keepSelection: true });
@@ -457,11 +333,59 @@ class App {
     this._renderColorLegend();
   }
 
+  _buildPoints(meta, proj) {
+    const coordsById = new Map(proj.points.map(p => [p.id, p]));
+    return meta.points.map(p => {
+      const c = coordsById.get(p.id);
+      return {
+        id: p.id, lang: p.lang, text: p.text, pairId: p.pairId, family: p.family,
+        hasTokens: p.hasTokens, tokenTexts: p.tokenTexts,
+        // no pairId at all -> each point is its own group, so it isolates alone
+        groupKey: p.pairId != null ? `pair:${p.pairId}` : `id:${p.id}`,
+        x: c.x, y: c.y, z: c.z, overlaid: Boolean(c.overlaid),
+      };
+    });
+  }
+
+  _forgetTokenOverlays() {
+    for (const detail of this._detailState.values()) {
+      detail.tokens = false;
+      detail.tokenPoints = [];
+    }
+  }
+
+  // A different dataset starts with nothing selected.
+  _resetSelection() {
+    this._selection = [];
+    this._translationGroups.clear();
+    this._focusedId = null;
+    this._detailState.clear();
+    this._pinColors.clear();
+    this.view.setPinnedPoints([]);
+    this.view.setTokenOverlays(new Map());
+    this._refreshStats();
+    this._setShowSelectedOnly(false); // DataTable.setPoints() resets its own checkbox directly, bypassing the callback — this re-enables the fisheye checkbox too
+  }
+
+  // The backend clamps out-of-range hyperparams (e.g. n_neighbors/perplexity
+  // past the dataset's point count) — reflect whatever it actually used back
+  // into the inputs so they never silently disagree with the plot.
+  _reflectParams(proj) {
+    if (!proj.params) return;
+    if (proj.method === 'umap') {
+      byId('umap-n-neighbors').value = proj.params.n_neighbors;
+      byId('umap-min-dist').value = proj.params.min_dist;
+    } else {
+      byId('tsne-perplexity').value = proj.params.perplexity;
+      byId('tsne-learning-rate').value = proj.params.learning_rate === 'auto' ? '' : proj.params.learning_rate;
+    }
+  }
+
   // Rebuilds the sidebar's color legend from whatever languages/families are
   // actually present in the current dataset — empty in "custom" mode, where
   // the language chips are the key.
   _renderColorLegend() {
-    const el = document.getElementById('color-legend');
+    const el = byId('color-legend');
     el.innerHTML = '';
     for (const { label, color } of this.view.getColorLegend()) {
       const item = document.createElement('span');
@@ -479,11 +403,11 @@ class App {
   // rather than fitted with the rest, and offers the refit that includes them.
   _renderOverlayNote(total) {
     const overlaid = this._overlaidCount;
-    document.getElementById('overlay-note').hidden = overlaid === 0;
+    byId('overlay-note').hidden = overlaid === 0;
     if (overlaid === 0) return;
     let text = `${overlaid} of ${total} points were placed into the existing layout instead of refitting it; nothing already plotted moved.`;
     if (overlaid > total - overlaid) text += ' Most points are overlaid; a refit gives a more faithful layout.';
-    document.getElementById('overlay-note-text').textContent = text;
+    byId('overlay-note-text').textContent = text;
   }
 
   // Fits the projection on every point again, with the current settings.
@@ -504,7 +428,7 @@ class App {
       this._pinColors.delete(id);
     }
     if (!presentIds.has(this._focusedId)) {
-      this._focusedId = this._selection.length ? this._selection[this._selection.length - 1] : null;
+      this._focusedId = this._lastPinnedId();
     }
     return this._selection.length !== before;
   }
@@ -552,7 +476,7 @@ class App {
   // it back off just re-enables the checkbox, it doesn't re-check it).
   _setShowSelectedOnly(enabled) {
     this.view.setShowPinnedOnly(enabled);
-    const fisheyeToggle = document.getElementById('fisheye-toggle');
+    const fisheyeToggle = byId('fisheye-toggle');
     fisheyeToggle.disabled = enabled;
     if (enabled) {
       fisheyeToggle.checked = false;
@@ -578,20 +502,26 @@ class App {
   _togglePin(point) {
     const idx = this._selection.indexOf(point.id);
     if (idx === -1) {
-      this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
-      this._selection.push(point.id);
-      this._detailState.set(point.id, { tokens: false, tokenPoints: [] });
+      this._addPin(point);
       this._focusedId = point.id;
     } else {
       this._selection.splice(idx, 1);
       this._detailState.delete(point.id);
       this._pinColors.delete(point.id);
-      if (this._focusedId === point.id) {
-        this._focusedId = this._selection.length ? this._selection[this._selection.length - 1] : null;
-      }
+      if (this._focusedId === point.id) this._focusedId = this._lastPinnedId();
     }
     this._syncPins();
     this._refreshStats();
+  }
+
+  _addPin(point) {
+    this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
+    this._selection.push(point.id);
+    this._detailState.set(point.id, { tokens: false, tokenPoints: [] });
+  }
+
+  _lastPinnedId() {
+    return this._selection.length ? this._selection[this._selection.length - 1] : null;
   }
 
   // Pins every point in `points` that isn't pinned yet (the data table's
@@ -601,11 +531,7 @@ class App {
   selectPoints(points) {
     const toAdd = points.filter(p => !this._detailState.has(p.id));
     if (toAdd.length === 0) return;
-    for (const point of toAdd) {
-      this._pinColors.set(point.id, PIN_PALETTE[this._selection.length % PIN_PALETTE.length]);
-      this._selection.push(point.id);
-      this._detailState.set(point.id, { tokens: false, tokenPoints: [] });
-    }
+    for (const point of toAdd) this._addPin(point);
     // First, not last: the table pages to the focused row, and a batch
     // select-all shouldn't jump you to the end of the list.
     this._focusedId = toAdd[0].id;
@@ -686,7 +612,7 @@ class App {
       return;
     }
 
-    const metric = document.getElementById('metric-select').value;
+    const metric = byId('metric-select').value;
     this._setLoading(true, 'Computing token projection...');
     let proj;
     try {
@@ -706,7 +632,6 @@ class App {
     }));
     this._syncPins();
   }
-
 }
 
 
