@@ -21,7 +21,7 @@ DIM = 12
 
 calls = []
 cache_dir = Path(tempfile.mkdtemp(prefix="e2e-flores-"))
-server.flores_loader.data_dir = cache_dir
+server.flores_loader.store.data_dir = cache_dir
 atexit.register(shutil.rmtree, cache_dir, ignore_errors=True)
 
 

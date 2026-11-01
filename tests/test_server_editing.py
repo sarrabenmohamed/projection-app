@@ -32,7 +32,7 @@ def builds(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
     return calls
 
 

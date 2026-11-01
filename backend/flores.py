@@ -3,17 +3,13 @@ disk, and a loader that can be cancelled while it embeds."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 import re
 import threading
-import uuid
 from pathlib import Path
 from typing import Callable, NamedTuple
 
 from backend import embedding_pipeline
-from backend.dataset import validate_and_normalize
+from backend.embedding_store import EmbeddingStore
 
 # FLORES-200 devtest has 1012 sentences per language and 204 language/script variants.
 FLORES_DEVTEST_SIZE = 1012
@@ -49,51 +45,16 @@ def flores_config(raw: dict) -> dict:
     return {"lang_codes": codes, "n_sentences": n, "model": model.strip(), "pooling": pooling}
 
 
-def _language_cache_path(data_dir: Path, code: str, model: str, pooling: str) -> Path:
-    key = json.dumps([model, pooling, code])
-    return data_dir / f"flores_lang_{hashlib.sha1(key.encode()).hexdigest()[:12]}.json"
-
-
-def _read_language_cache(data_dir: Path, code: str, config: dict) -> list:
-    """Everything cached for one language: sentences 0..k-1, in FLORES order
-    (so a cache built for N sentences also serves any smaller request, and
-    can be extended). Empty if there is no usable cache."""
-    path = _language_cache_path(data_dir, code, config["model"], config["pooling"])
-    if not path.exists():
-        return []
-    try:
-        cached = json.loads(path.read_text())
-    except ValueError:
-        return []
-    points = cached.get("points") if isinstance(cached, dict) else None
-    if not points or points[0].get("tokenVectors") is None:  # built before token vectors were kept
-        return []
-    if any(p.get("pairId") != i for i, p in enumerate(points)):  # extending something that isn't a prefix would corrupt it
-        return []
-    return points
-
-
-def _write_language_cache(data_dir: Path, code: str, config: dict, points: list) -> None:
-    """Replaces the language's cache in one step, so an interrupted write
-    can't leave a half-written file behind."""
-    path = _language_cache_path(data_dir, code, config["model"], config["pooling"])
-    data_dir.mkdir(parents=True, exist_ok=True)
-    scratch = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        scratch.write_text(json.dumps({"model": config["model"], "pooling": config["pooling"], "lang": code, "points": points}))
-        os.replace(scratch, path)
-    finally:
-        scratch.unlink(missing_ok=True)
-
-
-def load_or_build_dataset(config: dict, builder: Callable, data_dir: Path) -> dict:
+def load_or_build_dataset(config: dict, builder: Callable, store: EmbeddingStore) -> dict:
     """Embeds only what the per-language cache lacks: whole languages that
     were never embedded, and the later sentences of languages cached for
-    fewer sentences than requested.
+    fewer sentences than requested. The result's vectors are views into the
+    cache files, not copies.
     builder(lang_codes, n_sentences, model_name, pooling, start=0) -> dataset
     dict with sentences start..n_sentences-1 of each language."""
     n = config["n_sentences"]
-    cached = {code: _read_language_cache(data_dir, code, config) for code in config["lang_codes"]}
+    model, pooling = config["model"], config["pooling"]
+    cached = {code: store.read(code, model, pooling) for code in config["lang_codes"]}
 
     # Languages needing the same sentences are built together, loading the model once per group.
     groups = {}
@@ -104,13 +65,13 @@ def load_or_build_dataset(config: dict, builder: Callable, data_dir: Path) -> di
     for have, codes in sorted(groups.items()):
         built = builder(codes, n, config["model"], config["pooling"], start=have)
         for code in codes:
-            cached[code] = cached[code] + [p for p in built["points"] if p["lang"] == code]
-            _write_language_cache(data_dir, code, config, cached[code])
+            store.write(code, model, pooling, cached[code] + [p for p in built["points"] if p["lang"] == code])
+            cached[code] = store.read(code, model, pooling)
 
+    points = [p for code in config["lang_codes"] for p in cached[code][:n]]
     return {
-        "model": config["model"], "layer": "last", "pooling": config["pooling"],
-        "lang_codes": config["lang_codes"],
-        "points": [p for code in config["lang_codes"] for p in cached[code][:n]],
+        "model": model, "layer": "last", "pooling": pooling, "dim": len(points[0]["vector"]),
+        "lang_codes": config["lang_codes"], "lang_families": {}, "points": points,
     }
 
 
@@ -126,7 +87,7 @@ class FloresLoader:
     embed and a should_cancel callback."""
 
     def __init__(self, data_dir: Path, build: Callable):
-        self.data_dir = data_dir
+        self.store = EmbeddingStore(data_dir)
         self._build = build
         self._cancel = threading.Event()
 
@@ -141,10 +102,10 @@ class FloresLoader:
         def builder(*args, **kwargs):
             return self._build(*args, should_cancel=cancel.is_set, **kwargs)
 
-        built = load_or_build_dataset(config, builder, self.data_dir)
+        built = load_or_build_dataset(config, builder, self.store)
         if cancel.is_set():
             raise embedding_pipeline.EmbeddingCancelled()
-        return LoadedFlores(validate_and_normalize(built), {"kind": "flores", "n_sentences": config["n_sentences"]})
+        return LoadedFlores(built, {"kind": "flores", "n_sentences": config["n_sentences"]})
 
     def cancel(self) -> None:
         """Stops the running load at its next sentence; harmless when idle."""

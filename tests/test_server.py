@@ -443,14 +443,14 @@ def test_flores_endpoint_builds_loads_and_caches(client, tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", fake_build_dataset)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
 
     body = {"lang_codes": ["eng_Latn", "deu_Latn"], "n_sentences": 3}
     res = client.post("/dataset/flores", json=body)
     assert res.status_code == 200
     assert res.json()["n_points"] == 6
     assert calls == [(["eng_Latn", "deu_Latn"], 3, "xlm-roberta-base", "mean")]
-    assert len(list(tmp_path.glob("flores_lang_*.json"))) == 2
+    assert len(list(tmp_path.glob("flores_lang_*"))) == 2
 
     res = client.post("/dataset/flores", json=body)  # same config -> cache hit
     assert res.status_code == 200
@@ -472,13 +472,13 @@ def test_flores_cancel_stops_the_build_and_keeps_the_dataset(client, tmp_path, m
         raise server.embedding_pipeline.EmbeddingCancelled()
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build_until_cancelled)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
     before = server.store.data
     res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
     assert res.status_code == 409
     assert "cancelled" in res.json()["detail"]
     assert server.store.data is before
-    assert not list(tmp_path.glob("flores_lang_*.json"))  # nothing half-built is cached
+    assert not list(tmp_path.glob("flores_lang_*"))  # nothing half-built is cached
 
 
 def test_flores_load_after_a_cancel_is_not_affected_by_it(client, tmp_path, monkeypatch):
@@ -493,7 +493,7 @@ def test_flores_load_after_a_cancel_is_not_affected_by_it(client, tmp_path, monk
         }
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", build)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
     client.post("/dataset/flores/cancel")  # nothing running
     assert client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3}).status_code == 200
 
@@ -503,7 +503,7 @@ def test_flores_endpoint_400_on_unknown_language(client, tmp_path, monkeypatch):
         raise server.embedding_pipeline.UnknownLanguageError('"zzz_Xxxx" is not a FLORES-200 language')
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", unknown)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
     res = client.post("/dataset/flores", json={"lang_codes": ["zzz_Xxxx"], "n_sentences": 3})
     assert res.status_code == 400
     assert "zzz_Xxxx" in res.json()["detail"]
@@ -519,7 +519,7 @@ def test_flores_endpoint_500_and_keeps_dataset_when_build_fails(client, tmp_path
         raise RuntimeError("no HuggingFace auth/network available")
 
     monkeypatch.setattr(server.embedding_pipeline, "build_dataset", boom)
-    monkeypatch.setattr(server.flores_loader, "data_dir", tmp_path)
+    monkeypatch.setattr(server.flores_loader.store, "data_dir", tmp_path)
     before = server.store.data
     res = client.post("/dataset/flores", json={"lang_codes": ["eng_Latn"], "n_sentences": 3})
     assert res.status_code == 500
