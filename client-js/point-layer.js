@@ -4,7 +4,7 @@
 //
 // Three coloring modes, mutually exclusive (see setColorMode):
 // - 'language' (default): every language gets its own hue, always on.
-//   Past a couple of dozen languages the palette repeats; the legend and
+//   Past about fifty languages the palette repeats; the legend and
 //   hover labels still say which is which.
 // - 'family': every point is colored by its language's linguistic family.
 //   `family` is a field the backend already attaches to every point
@@ -26,10 +26,17 @@
 const NEUTRAL_COLOR = '#bbb';
 const FILTERED_OUT_OPACITY = 0.3;
 const ISOLATED_OUT_OPACITY = 0.3;
-// d3.schemeTableau10 with its trailing gray (#bab0ac) swapped for a cyan —
-// that gray reads as "dimmed/background" (see NEUTRAL_COLOR above), so a
-// family that landed on it was indistinguishable from an isolated-out point.
-const FAMILY_COLORS = [...d3.schemeTableau10.slice(0, 9), '#17becf'];
+// Distinct hues, no gray (reads as "dimmed/background", see NEUTRAL_COLOR).
+// FLORES-200 spans a few dozen families, so a ten-colour palette repeated and
+// two families shared a colour; the first ten are Tableau's, the rest were
+// picked to stay apart from them and from each other, the hardest to tell
+// from an earlier colour last.
+const FAMILY_COLORS = [
+  ...d3.schemeTableau10.slice(0, 9), '#17becf',
+  '#f032e6', '#911eb4', '#000075', '#800000', '#808000', '#008080', '#bcf60c', '#ff1493',
+  '#d2691e', '#00bfff', '#4b0082', '#2e8b57', '#ffd700', '#e6194b', '#4363d8', '#3cb44b',
+  '#f58231', '#a0522d', '#7b68ee', '#c71585',
+];
 // One hue per language: the family palette, then Paired and Dark2 for variety.
 const LANG_COLORS = [...FAMILY_COLORS, ...d3.schemePaired, ...d3.schemeDark2];
 const DEPTH_SIZE_RANGE = 0.35;  // 3D: nearest points drawn up to 35% bigger, farthest 35% smaller

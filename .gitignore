@@ -22,3 +22,6 @@ venv/
 
 # Design specs/plans — not source, keep them local for now
 docs/
+# Logs and pid files of locally started servers
+*.log
+*.pid
