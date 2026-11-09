@@ -126,16 +126,16 @@
         <option value="lang">Language</option>
         <option value="family">Language family</option>
       </select>
-      <label><input type="checkbox" id="view3d-toggle" data-tip="Project into 3 dimensions instead of 2 and rotate the cloud by dragging."> 3D view</label>
+      <label><input type="checkbox" id="view3d-toggle" autocomplete="off" data-tip="Project into 3 dimensions instead of 2 and rotate the cloud by dragging."> 3D view</label>
       <div id="view3d-options" hidden>
-        <div class="param-hint">Drag the cloud to rotate &middot; drag outside it (or Shift+drag) to pan &middot; scroll to zoom.</div>
+        <div class="param-hint">Drag the cloud to rotate &middot; drag outside it (or Shift+drag) to pan &middot; arrow keys or WASD also pan &middot; scroll to zoom.</div>
         <button type="button" id="view3d-reset">Reset view</button>
       </div>
-      <label><input type="checkbox" id="fisheye-toggle"> Fisheye lens (drag the disk)</label>
+      <label><input type="checkbox" id="fisheye-toggle" autocomplete="off"> Fisheye lens (drag the disk)</label>
       <div id="fisheye-options" hidden>
         <label for="fisheye-size" class="fisheye-size-label">Lens size: <span id="fisheye-size-value">110</span> px</label>
-        <input type="range" id="fisheye-size" min="40" max="300" step="5" value="110" data-tip="Radius of the fisheye disk in screen pixels.">
-        <select id="fisheye-style-select">
+        <input type="range" id="fisheye-size" autocomplete="off" min="40" max="300" step="5" value="110" data-tip="Radius of the fisheye disk in screen pixels.">
+        <select id="fisheye-style-select" autocomplete="off">
           <option value="d3">Style: D3 (exponential)</option>
           <option value="geometric">Style: Geometric (rational)</option>
         </select>
@@ -151,7 +151,7 @@
 
     <div id="lang-filter-controls">
       <label for="color-mode-select">Color points by:</label>
-      <select id="color-mode-select">
+      <select id="color-mode-select" autocomplete="off">
         <option value="language">Language</option>
         <option value="family">Language family</option>
         <option value="custom">Chosen languages only</option>

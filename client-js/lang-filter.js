@@ -33,6 +33,13 @@ export class LangFilter {
     this._hideSuggestions();
   }
 
+  // Chooses `langs` (those present in the dataset) without reporting a change;
+  // for restoring what the user had picked before a page reload.
+  setSelected(langs) {
+    this.selected = new Set(langs.filter(lang => this.allLangs.includes(lang)));
+    this._renderChips();
+  }
+
   getSelected() {
     return [...this.selected];
   }

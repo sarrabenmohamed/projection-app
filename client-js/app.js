@@ -19,6 +19,11 @@ const PIN_PALETTE = d3.schemeTableau10;
 
 const byId = id => document.getElementById(id);
 const on = (id, event, handler) => byId(id).addEventListener(event, handler);
+const VIEW3D_KEY = 'projection-app-3d';
+const COLOR_MODE_KEY = 'projection-app-color-mode';
+const COLOR_LANGS_KEY = 'projection-app-color-langs';
+const FISHEYE_KEY = 'projection-app-fisheye';
+const SELECTION_KEY = 'projection-app-selection';
 const TOKENS_NEED_UMAP = 'Tokens are placed into a UMAP layout; t-SNE has no way to add points to one.';
 const EDIT_NEEDS_UMAP = 't-SNE can’t add points to an existing layout, so every point would move. Switch to UMAP to edit, or load a new selection.';
 
@@ -42,10 +47,15 @@ class App {
     this.stats = new StatsView({ containerId: 'stats' });
     this.langFilter = new LangFilter(
       { inputId: 'lang-search', suggestionsId: 'lang-suggestions', chipsId: 'lang-chips' },
-      selected => this.view.setLangFilter(selected)
+      selected => {
+        localStorage.setItem(COLOR_LANGS_KEY, JSON.stringify(selected));
+        this.view.setLangFilter(selected);
+      }
     );
     this.floresPanel = new FloresPanel(request => this._onFloresRequest(request));
     this.points = [];
+    this._colorLangsToRestore = this._storedColorLangs(); // applied once, to the first dataset after a page load
+    this._selectionToRestore = this._storedSelection();   // likewise
     this._fitId = null;             // which UMAP fit the plotted layout came from (token overlays are only valid within one)
     this._overlaidCount = 0;        // points placed into the layout rather than fitted
     this._selection = [];           // ordered array of pinned ids, insertion order
@@ -60,6 +70,10 @@ class App {
   async init() {
     this.view = new ProjectionView('projection');
     this.layout = new PanelLayout({ onProjectionResized: () => this.view?.resize() });
+    this._restoreView3D();
+    this._restoreColorMode();
+    this._restoreFisheye();
+    this._blockTrackpadPageZoom();
 
     this._bindDatasetControls();
     this._bindViewControls();
@@ -93,12 +107,19 @@ class App {
 
   _bindViewControls() {
     on('label-select', 'change', e => this.view.setLabelBy(e.target.value));
-    on('fisheye-toggle', 'change', e => this._setFisheye(e.target.checked));
+    on('fisheye-toggle', 'change', e => {
+      this._setFisheye(e.target.checked);
+      this._saveFisheye();
+    });
     on('fisheye-size', 'input', e => {
       byId('fisheye-size-value').textContent = e.target.value;
       this.view.setFisheyeRadius(Number(e.target.value));
+      this._saveFisheye();
     });
-    on('fisheye-style-select', 'change', e => this.view.setFisheyeStyle(e.target.value));
+    on('fisheye-style-select', 'change', e => {
+      this.view.setFisheyeStyle(e.target.value);
+      this._saveFisheye();
+    });
     on('color-mode-select', 'change', e => this._setColorMode(e.target.value));
     this._setColorMode(byId('color-mode-select').value);
     on('view3d-reset', 'click', () => this.view.resetView());
@@ -150,9 +171,81 @@ class App {
   // Language/family color every point; "custom" only colors the languages
   // picked in the language filter, so the picker is only shown for it.
   _setColorMode(mode) {
+    localStorage.setItem(COLOR_MODE_KEY, mode);
     this.view.setColorMode(mode);
     byId('lang-picker').hidden = mode !== 'custom';
     this._renderColorLegend();
+  }
+
+  // The first projection after a page load must already use the dimension the
+  // user left on, so it is read from storage rather than from the checkbox,
+  // which the browser may restore late or not at all.
+  _restoreView3D() {
+    const enabled = localStorage.getItem(VIEW3D_KEY) === '1';
+    byId('view3d-toggle').checked = enabled;
+    byId('view3d-options').hidden = !enabled;
+  }
+
+  _restoreColorMode() {
+    const select = byId('color-mode-select');
+    const stored = localStorage.getItem(COLOR_MODE_KEY);
+    if ([...select.options].some(o => o.value === stored)) select.value = stored;
+  }
+
+  // The lens settings are applied to the view explicitly: the browser may
+  // restore the checkbox on its own, which would leave it checked with no lens.
+  _restoreFisheye() {
+    let saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(FISHEYE_KEY) || '{}') || {};
+    } catch { /* an unreadable value means defaults */ }
+    const size = byId('fisheye-size');
+    const style = byId('fisheye-style-select');
+    if (Number.isFinite(saved.radius)) size.value = saved.radius;
+    if ([...style.options].some(o => o.value === saved.style)) style.value = saved.style;
+    byId('fisheye-size-value').textContent = size.value;
+    this.view.setFisheyeRadius(Number(size.value));
+    this.view.setFisheyeStyle(style.value);
+    byId('fisheye-toggle').checked = saved.enabled === true;
+    this._setFisheye(saved.enabled === true);
+  }
+
+  // Saved from the user's own changes only: showing the selection turns the
+  // lens off for a while, which shouldn't forget that it was wanted.
+  _saveFisheye() {
+    localStorage.setItem(FISHEYE_KEY, JSON.stringify({
+      enabled: byId('fisheye-toggle').checked,
+      radius: Number(byId('fisheye-size').value),
+      style: byId('fisheye-style-select').value,
+    }));
+  }
+
+  // A pinch on a touchpad reaches the page as a Ctrl+wheel with a fractional
+  // delta; left alone it magnifies the whole UI instead of the browser's zoom.
+  // Mouse Ctrl+wheel (whole-number deltas) still changes the browser zoom, and
+  // the canvas does its own zoom for both.
+  _blockTrackpadPageZoom() {
+    window.addEventListener('wheel', e => {
+      if (e.ctrlKey && !Number.isInteger(e.deltaY)) e.preventDefault();
+    }, { passive: false });
+  }
+
+  _storedSelection() {
+    try {
+      const ids = JSON.parse(localStorage.getItem(SELECTION_KEY) || '[]');
+      return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  _storedColorLangs() {
+    try {
+      const langs = JSON.parse(localStorage.getItem(COLOR_LANGS_KEY) || '[]');
+      return Array.isArray(langs) ? langs.filter(l => typeof l === 'string') : [];
+    } catch {
+      return [];
+    }
   }
 
   _is3D() {
@@ -163,6 +256,7 @@ class App {
   // selection and colours), since 2D and 3D are separate fits.
   _setView3D(enabled) {
     byId('view3d-options').hidden = !enabled;
+    localStorage.setItem(VIEW3D_KEY, enabled ? '1' : '0');
     this._refresh({ keepState: true });
   }
 
@@ -329,7 +423,14 @@ class App {
       this.langFilter.setLangs(meta.lang_codes);
       this.table.setPoints(this.points);
       this.view.update(this.points, d => this.onCanvasClickPoint(d));
+      if (this._colorLangsToRestore.length) {
+        this.langFilter.setSelected(this._colorLangsToRestore);
+        this.view.setLangFilter(this.langFilter.getSelected());
+      }
+      this._restoreSelection(meta);
     }
+    this._colorLangsToRestore = [];
+    this._selectionToRestore = [];
     this._renderColorLegend();
   }
 
@@ -354,6 +455,18 @@ class App {
     }
   }
 
+  // Pins the points selected before the page was reloaded that this dataset still has.
+  _restoreSelection(meta) {
+    const present = new Set(meta.points.map(p => p.id));
+    const pointsById = new Map(this.points.map(p => [p.id, p]));
+    const ids = this._selectionToRestore.filter(id => present.has(id));
+    if (ids.length === 0) return;
+    for (const id of ids) this._addPin(pointsById.get(id));
+    this._focusedId = this._lastPinnedId();
+    this._syncPins();
+    this._refreshStats();
+  }
+
   // A different dataset starts with nothing selected.
   _resetSelection() {
     this._selection = [];
@@ -361,6 +474,7 @@ class App {
     this._focusedId = null;
     this._detailState.clear();
     this._pinColors.clear();
+    localStorage.setItem(SELECTION_KEY, '[]');
     this.view.setPinnedPoints([]);
     this.view.setTokenOverlays(new Map());
     this._refreshStats();
@@ -455,6 +569,7 @@ class App {
     this.view.setTokenOverlays(overlaysByPin);
 
     this.table.setPins(pins);
+    localStorage.setItem(SELECTION_KEY, JSON.stringify(this._selection));
 
     // If unpinning (via canvas click, background click, or the table
     // checkbox) just emptied the selection while "show selected" was

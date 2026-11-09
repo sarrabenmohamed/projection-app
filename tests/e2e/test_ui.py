@@ -114,6 +114,45 @@ def test_3d_view_rotates_and_still_hit_tests(ui):
     assert ui.js("__app.view.pointLayer.dims") == 2
 
 
+def test_a_page_reload_keeps_the_colour_mode_and_chosen_languages(ui):
+    ui.load_sample()
+    ui.page.select_option("#color-mode-select", "family")
+    ui.page.reload()
+    ui.settle()
+    assert ui.page.input_value("#color-mode-select") == "family"
+    assert ui.js("__app.view.pointLayer._colorMode") == "family"
+
+    ui.page.select_option("#color-mode-select", "custom")
+    ui.page.fill("#lang-search", "de")
+    ui.page.locator("#lang-suggestions > *").first.click()
+    chosen = ui.js("__app.langFilter.getSelected()")
+    assert len(chosen) == 1
+    ui.page.reload()
+    ui.settle()
+    assert ui.page.input_value("#color-mode-select") == "custom"
+    assert ui.js("__app.langFilter.getSelected()") == chosen
+    assert ui.js("[...__app.view.pointLayer._selectedLangs]") == chosen
+    assert ui.page.locator("#lang-chips .lang-chip").count() == 1
+
+
+def test_a_page_reload_keeps_the_3d_view(ui):
+    ui.load_sample()
+    ui.page.locator("#view3d-toggle").check()
+    ui.wait_for_status("(3D)")
+    ui.page.reload()
+    ui.wait_for_status("(3D)")
+    ui.settle()
+    assert ui.js("__app.view.pointLayer.dims") == 3
+    assert ui.page.locator("#view3d-toggle").is_checked()
+    assert ui.page.locator("#view3d-options").is_visible()
+
+    ui.page.locator("#view3d-toggle").uncheck()
+    ui.wait_for_status("umap")
+    ui.page.reload()
+    ui.settle()
+    assert ui.js("__app.view.pointLayer.dims") == 2
+
+
 def test_3d_drag_outside_the_box_pans_instead_of_rotating(ui):
     ui.load_sample()
     ui.page.locator("#view3d-toggle").check()
@@ -219,3 +258,97 @@ def test_tokens_action_is_disabled_on_tsne_instead_of_switching_to_umap(ui):
     line = ui.page.locator(".actions-menu-line", has_text="Tokens")
     assert "actions-menu-disabled" in line.get_attribute("class")
     assert ui.js("document.getElementById('method-select').value") == "tsne"
+
+
+def test_a_page_reload_keeps_the_fisheye_lens(ui):
+    ui.load_sample()
+    ui.page.locator("#fisheye-toggle").check()
+    ui.page.locator("#fisheye-size").fill("150")
+    ui.page.select_option("#fisheye-style-select", "geometric")
+    ui.page.reload()
+    ui.settle()
+    assert ui.page.locator("#fisheye-toggle").is_checked()
+    assert ui.js("__app.view._lensCenter !== null")
+    assert ui.js("__app.view._fisheyeRadius") == 150
+    assert ui.js("__app.view._fisheyeStyle") == "geometric"
+    assert ui.page.locator("#fisheye-options").is_visible()
+
+    ui.page.locator("#fisheye-toggle").uncheck()
+    ui.page.reload()
+    ui.settle()
+    assert not ui.page.locator("#fisheye-toggle").is_checked()
+    assert ui.js("__app.view._lensCenter") is None
+
+
+def test_a_page_reload_keeps_the_selection(ui):
+    ui.load_sample()
+    ids = ui.js("__app.points.slice(0, 3).map(p => p.id)")
+    ui.js("ids => __app.selectPoints(__app.points.filter(p => ids.includes(p.id)))", ids)
+    chosen = ui.selection
+    assert len(chosen) == 3
+    ui.page.reload()
+    ui.settle()
+    assert ui.selection == chosen
+
+    ui.js("__app.clearSelection()")
+    ui.page.reload()
+    ui.settle()
+    assert ui.selection == []
+
+
+def test_a_zoomed_view_keeps_its_points_in_place_when_a_panel_is_collapsed(ui):
+    ui.load_sample()
+    box = ui.canvas_box()
+    ui.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    ui.page.mouse.wheel(0, -400)
+    ui.settle()
+    assert ui.js("__app.view.axes.transform.k") > 1
+    point = ui.js("__app.points[0].id")
+    before = ui.screen_of(point)
+
+    ui.page.locator('[data-collapse="data-table-panel"]').click()
+    ui.page.wait_for_function("document.getElementById('projection').clientHeight > %d" % (box["height"] + 20))
+    after = ui.screen_of(point)
+    assert abs(after[0] - before[0]) < 1 and abs(after[1] - before[1]) < 1
+
+
+def test_arrow_keys_and_wasd_pan_the_view_but_not_while_typing(ui):
+    ui.load_sample()
+    ui.page.locator("#view3d-toggle").check()
+    ui.wait_for_status("(3D)")
+    ui.settle()
+    x, y = ui.js("[__app.view.axes.transform.x, __app.view.axes.transform.y]")
+
+    ui.page.keyboard.press("ArrowRight")
+    assert ui.js("__app.view.axes.transform.x") < x
+    ui.page.keyboard.press("d")
+    ui.page.keyboard.press("s")
+    assert ui.js("__app.view.axes.transform.y") < y
+
+    ui.page.keyboard.press("ArrowLeft")
+    ui.page.keyboard.press("a")
+    ui.page.keyboard.press("ArrowDown")
+    ui.page.keyboard.press("w")
+    ui.page.keyboard.press("ArrowUp")
+    ui.page.keyboard.press("s")
+    ui.page.keyboard.press("w")
+    ui.page.select_option("#color-mode-select", "custom")
+    x_now = ui.js("__app.view.axes.transform.x")
+    ui.page.locator("#lang-search").focus()
+    ui.page.keyboard.type("dd")
+    assert ui.js("__app.view.axes.transform.x") == x_now
+
+
+def test_a_touchpad_pinch_does_not_zoom_the_page_but_a_mouse_ctrl_wheel_does(ui):
+    ui.load_sample()
+    result = ui.js(
+        """() => {
+            const fire = deltaY => {
+                const e = new WheelEvent('wheel', { ctrlKey: true, deltaY, cancelable: true, bubbles: true });
+                document.getElementById('sidebar').dispatchEvent(e);
+                return e.defaultPrevented;
+            };
+            return [fire(-2.5), fire(-100)];
+        }"""
+    )
+    assert result == [True, False]

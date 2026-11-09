@@ -29,6 +29,16 @@ export class ZoomableAxes {
     d3.select(this._targetEl).call(this.zoom.transform, d3.zoomIdentity);
   }
 
+  isIdentity() {
+    const t = this.transform;
+    return t.k === 1 && t.x === 0 && t.y === 0;
+  }
+
+  // Moves the view by (dx, dy) screen pixels at any zoom level.
+  panBy(dx, dy) {
+    d3.select(this._targetEl).call(this.zoom.translateBy, dx / this.transform.k, dy / this.transform.k);
+  }
+
   // Recomputes the zoom behavior's pannable/zoomable extent for a new
   // container size — used when the plot's container is resized (e.g. a
   // collapse/fullscreen toggle elsewhere in the layout).

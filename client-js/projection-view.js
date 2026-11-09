@@ -24,6 +24,11 @@ const FISHEYE_DISTORTION = 3;
 const LENS_GRIP_RADIUS = 14;
 const LENS_RIM_GRAB = 8;
 const ROTATE_SPEED = 0.008; // radians per dragged pixel
+const PAN_STEP = 40;        // screen px per key press
+const PAN_KEYS = {          // the key moves the camera, so the points move the other way
+  arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0],
+  arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1],
+};
 const DRAG_THRESHOLD = 3;   // px of movement before a press counts as a drag, not a click
 
 export class ProjectionView {
@@ -70,6 +75,26 @@ export class ProjectionView {
       if (this.el.clientWidth && (this.el.clientWidth !== this._sizedWidth || this.el.clientHeight !== this._sizedHeight)) this.resize();
     }).observe(this.el);
     this.canvas.addEventListener('contextmenu', event => event.preventDefault()); // right-drag is the box-select
+    window.addEventListener('keydown', event => this._onPanKey(event));
+  }
+
+  // Fields that use the arrow keys or letters themselves; a focused checkbox
+  // or button (e.g. the one just clicked) doesn't.
+  _takesKeys(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+    return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(el.type);
+  }
+
+  // Arrow keys or WASD pan the view, as an alternative to dragging (in 3D,
+  // dragging pans only outside the cloud). Ignored while typing, with a
+  // modifier held, or when the view is hidden.
+  _onPanKey(event) {
+    const step = PAN_KEYS[event.key.toLowerCase()];
+    if (!step || event.ctrlKey || event.metaKey || event.altKey || !this.pointLayer.points.length || !this.el.clientWidth) return;
+    if (this._takesKeys(event.target)) return;
+    event.preventDefault();
+    this.axes.panBy(-step[0] * PAN_STEP, -step[1] * PAN_STEP);
   }
 
   // keepColors: `points` is an edited version of the current set, so
@@ -192,7 +217,10 @@ export class ProjectionView {
     this._applySize();
     this.axes.resize(this.width, this.height);
 
-    if (this.pointLayer.points.length) this._fitScales();
+    // A zoomed or panned view keeps its base scales, so what is on screen
+    // stays exactly where it is while a panel is dragged or collapsed;
+    // refitting would stretch the data to the new size and carry it away.
+    if (this.pointLayer.points.length && this.axes.isIdentity()) this._fitScales();
     if (this._lensCenter) this._lensCenter = this._clampLens(this._lensCenter.x, this._lensCenter.y);
     this._draw();
   }
@@ -491,7 +519,7 @@ export class ProjectionView {
       this.canvas.style.cursor = 'pointer';
     } else {
       this.tooltip.hide();
-      this.canvas.style.cursor = this.is3D && this._insideBox(event) ? 'grab' : 'default';
+      this.canvas.style.cursor = this.is3D ? (this._insideBox(event) ? 'grab' : 'move') : 'default';
     }
   }
 
